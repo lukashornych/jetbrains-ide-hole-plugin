@@ -1,0 +1,9 @@
+[
+  {"instanceId": "aaaaaa", "agent": "gemini"},
+  {"instanceId": "bbbbbb", "status": "stopping", "startedAt": "not a date", "pid": "12", "networks": null, "docker": "yes"},
+  {"instanceId": "cccccc", "status": "hibernating"},
+  {"agent": "claude"},
+  "garbage",
+  {"instanceId": "dddddd", "status": "STARTING", "profile": null},
+  {"instanceId": "eeeeee", "status": null}
+]

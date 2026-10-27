@@ -1,0 +1,7 @@
+.idea
+# Gradle and IntelliJ Platform build outputs
+.gradle/
+.intellijPlatform/
+build/
+out/
+.kotlin/

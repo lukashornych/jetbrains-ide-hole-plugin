@@ -1,0 +1,51 @@
+[
+  {
+    "instanceId": "r8tq2c",
+    "instanceName": "acme-cms-r8tq2c",
+    "status": "running",
+    "agent": "claude",
+    "profile": "research",
+    "projectPath": "/Users/dev/projects/acme-cms",
+    "projectName": "acme-cms",
+    "startedAt": "2026-10-21T10:14:03+02:00",
+    "uptimeSeconds": 754,
+    "docker": false,
+    "networks": ["hole-acme-cms-r8tq2c_sandbox"],
+    "settings": ["global(~/.hole/settings.json)", "project"],
+    "settingsFiles": ["/Users/dev/.hole/settings.json", "/Users/dev/projects/acme-cms/.hole/settings.json"],
+    "flags": {
+      "debug": false,
+      "rebuild": false,
+      "unrestricted": false,
+      "dumpNetworkAccess": false,
+      "withDocker": false
+    },
+    "pid": 48211,
+    "version": "2.3.0"
+  },
+  {
+    "instanceId": "7m2ahw",
+    "instanceName": "acme-shop-7m2ahw",
+    "status": "starting",
+    "agent": "codex",
+    "profile": "",
+    "projectPath": "/Users/dev/projects/acme-shop",
+    "projectName": "acme-shop",
+    "startedAt": "2026-10-21T08:30:00.123456789Z",
+    "uptimeSeconds": 1,
+    "docker": true,
+    "networks": [],
+    "settings": ["global(/etc/hole.json)"],
+    "settingsFiles": ["/etc/hole.json"],
+    "flags": {
+      "debug": true,
+      "rebuild": true,
+      "unrestricted": true,
+      "dumpNetworkAccess": true,
+      "withDocker": true
+    },
+    "pid": 50001,
+    "version": "2.3.0",
+    "someFutureField": {"nested": [1, 2, 3]}
+  }
+]

@@ -1,0 +1,279 @@
+#!/bin/sh
+# Fake `hole` CLI for the plugin tests (implementation plan, section 4). It implements just enough of Hole 2.6.0's
+# `hole start`, `hole list [--json] [--no-gc] [id]`, `hole settings get` and `hole version` to exercise the plugin
+# without Docker. Error lines look like Hole's: `[ERROR] message`, coloured when stderr is a terminal.
+#
+# All state lives in $FAKE_HOLE_STATE_DIR (required):
+#   instances/<id>.json   one JSON object per running instance, in the `hole list --json` schema
+#   calls.log             one line per invocation (the arguments), so tests can count polls
+#   leftovers/<id>        `start --instance-id <id>` fails like Hole with leftovers of an abandoned sandbox
+#   child.pid, child.int  written by the FAKE_HOLE_CHILD child: its PID, and a marker when SIGINT reached it
+#
+# Behaviour switches (environment):
+#   FAKE_HOLE_MODE=old          a Hole before 2.6.0: `version` prints `hole 2.5.0`, `list --json` and
+#                               `--instance-id` are rejected as unknown options
+#   FAKE_HOLE_MODE=fail         `list` fails like without a container engine
+#   FAKE_HOLE_START_EXIT=N      `start` fails with exit code N right after printing the instance ID
+#   FAKE_HOLE_HANG=1            `start` ignores SIGINT (Force Stop test; only SIGKILL ends it)
+#   FAKE_HOLE_RUNNING_AFTER=S   seconds `start` stays in status `starting` (default 1)
+#   FAKE_HOLE_EXIT_AFTER=S      `start` ends by itself after S seconds with exit code 0 (like `/exit`)
+#   FAKE_HOLE_LIST_DELAY=S      `list` sleeps S seconds before answering (concurrency tests)
+#   FAKE_HOLE_VERSION=TEXT      what `version` prints (default `hole 2.6.0`, `hole 2.5.0` in old mode)
+#   FAKE_HOLE_VERSION_EXIT=N    `version` exits with N (default 0)
+#   FAKE_HOLE_VERSION_DELAY=S   `version` sleeps S seconds before answering (concurrency tests)
+#   FAKE_HOLE_CHILD=1           `start` runs a child process in the foreground right after registering, like Hole's
+#                               image build: the child ends only on SIGINT, and `start` handles its own SIGINT only
+#                               after the child has ended. So a SIGINT to the process group stops both at once, while
+#                               a SIGINT to the `hole` process alone waits for the child forever.
+#   HOLE_SETTINGS_FILE, HOLE_PROJECT_SETTINGS_FILE   honoured by `settings get` like by Hole
+
+set -u
+state="${FAKE_HOLE_STATE_DIR:?FAKE_HOLE_STATE_DIR is not set}"
+mode="${FAKE_HOLE_MODE:-}"
+instances="$state/instances"
+mkdir -p "$instances"
+echo "$*" >> "$state/calls.log"
+
+error() {
+    if [ -t 2 ]; then
+        printf '\033[0;31m[ERROR] %s\033[0m\n' "$*" >&2
+    else
+        printf '[ERROR] %s\n' "$*" >&2
+    fi
+}
+
+json_escape() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+# write_instance <file> <status>; uses the variables set by `start`
+write_instance() {
+    tmp="$1.tmp"
+    cat > "$tmp" <<JSON
+{
+  "instanceId": "$id",
+  "instanceName": "$(json_escape "$project_name")-$id",
+  "status": "$2",
+  "agent": "$(json_escape "$agent")",
+  "profile": "$(json_escape "$profile")",
+  "projectPath": "$(json_escape "$project_path")",
+  "projectName": "$(json_escape "$project_name")",
+  "startedAt": "$started_at",
+  "uptimeSeconds": 0,
+  "docker": $with_docker,
+  "networks": ["hole-$(json_escape "$project_name")-${id}_sandbox"],
+  "settings": ["global(~/.hole/settings.json)"],
+  "settingsFiles": [],
+  "flags": {
+    "debug": $debug,
+    "rebuild": $rebuild,
+    "unrestricted": $unrestricted,
+    "dumpNetworkAccess": $dump,
+    "withDocker": $with_docker
+  },
+  "pid": $$,
+  "version": "2.6.0"
+}
+JSON
+    mv "$tmp" "$1"
+}
+
+cmd_list() {
+    if [ -n "${FAKE_HOLE_LIST_DELAY:-}" ]; then sleep "$FAKE_HOLE_LIST_DELAY"; fi
+    json=false
+    filter=""
+    for arg in "$@"; do
+        case "$arg" in
+            --json|--no-gc)
+                if [ "$mode" = "old" ]; then error "unknown option '$arg'; run 'hole help' for usage"; exit 1; fi
+                [ "$arg" = "--json" ] && json=true ;;
+            -*) error "unknown option '$arg'; run 'hole help' for usage"; exit 1 ;;
+            *) filter="$arg" ;;
+        esac
+    done
+    if [ "$mode" = "old" ]; then
+        if [ -n "$filter" ]; then
+            error "unexpected argument '$filter'; usage: hole list"
+            exit 1
+        fi
+    fi
+    if [ "$mode" = "fail" ]; then
+        error "neither docker nor podman is installed"
+        exit 1
+    fi
+    if [ "$json" = false ]; then
+        echo "INSTANCE  AGENT  PROJECT"
+        for file in "$instances"/*.json; do
+            [ -f "$file" ] || continue
+            echo "$(basename "$file" .json)  -  -"
+        done
+        exit 0
+    fi
+    printf '['
+    first=true
+    for file in "$instances"/*.json; do
+        [ -f "$file" ] || continue
+        if [ -n "$filter" ] && [ "$(basename "$file" .json)" != "$filter" ]; then
+            continue
+        fi
+        if [ "$first" = true ]; then first=false; else printf ','; fi
+        cat "$file"
+    done
+    printf ']\n'
+    exit 0
+}
+
+cmd_settings() {
+    if [ "${1:-}" != "get" ]; then error "invalid settings subcommand '${1:-}'; expected create, open or get"; exit 1; fi
+    case "${2:-}" in
+        global)
+            path="${HOLE_SETTINGS_FILE:-$HOME/.hole/settings.json}"
+            hint="hole settings create global" ;;
+        project)
+            if [ -z "${3:-}" ]; then error "no project path given"; exit 1; fi
+            if ! dir="$(cd "$3" 2>/dev/null && pwd -P)"; then
+                error "directory '$3' does not exist"
+                exit 1
+            fi
+            path="${HOLE_PROJECT_SETTINGS_FILE:-$dir/.hole/settings.json}"
+            hint="hole settings create project $3" ;;
+        *) error "invalid settings scope '${2:-}'; expected project or global"; exit 1 ;;
+    esac
+    case "$path" in
+        /*) ;;
+        *) error "settings file path '$path' must be an absolute path"; exit 1 ;;
+    esac
+    if [ ! -f "$path" ]; then
+        error "settings file '$path' does not exist; create it with '$hint'"
+        exit 1
+    fi
+    echo "$path"
+    exit 0
+}
+
+cmd_version() {
+    if [ -n "${FAKE_HOLE_VERSION_DELAY:-}" ]; then sleep "$FAKE_HOLE_VERSION_DELAY"; fi
+    default="hole 2.6.0"
+    [ "$mode" = "old" ] && default="hole 2.5.0"
+    echo "${FAKE_HOLE_VERSION:-$default}"
+    exit "${FAKE_HOLE_VERSION_EXIT:-0}"
+}
+
+cmd_start() {
+    agent_spec=""
+    path=""
+    id=""
+    debug=false; rebuild=false; unrestricted=false; dump=false; with_docker=false
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --) shift; break ;;
+            -d|--debug) debug=true ;;
+            -r|--rebuild) rebuild=true ;;
+            -u|--unrestricted-network) unrestricted=true ;;
+            -n|--dump-network-access) dump=true ;;
+            --with-docker) with_docker=true ;;
+            --trust-project|--update-agents) ;;
+            --library) shift ;;
+            --instance-id)
+                if [ "$mode" = "old" ]; then error "unknown option '$1'; run 'hole help' for usage"; exit 1; fi
+                shift; id="${1:-}" ;;
+            -*) error "unknown option '$1'; run 'hole help' for usage"; exit 1 ;;
+            *)
+                if [ -z "$agent_spec" ]; then agent_spec="$1"
+                elif [ -z "$path" ]; then path="$1"
+                else error "unexpected argument '$1'; agent arguments go after '--'"; exit 1
+                fi ;;
+        esac
+        shift
+    done
+    if [ "$debug" = true ] && [ $# -gt 0 ]; then
+        error "--debug and agent arguments (after --) cannot be used together"
+        exit 1
+    fi
+    if [ -z "$agent_spec" ]; then error "no agent given"; exit 1; fi
+    if [ -z "$path" ]; then error "no project path given"; exit 1; fi
+    if ! printf '%s' "$id" | grep -Eq '^[a-z0-9]{6}$'; then
+        error "invalid instance ID '$id': expected 6 characters a-z, 0-9"
+        exit 1
+    fi
+    file="$instances/$id.json"
+    if [ -f "$file" ]; then
+        other="$(sed -n 's/.*"projectPath": "\([^"]*\)".*/\1/p' "$file" | head -n 1)"
+        error "instance ID '$id' is already in use by ${other:-/somewhere/else}"
+        exit 1
+    fi
+    if [ -f "$state/leftovers/$id" ]; then
+        error "instance ID '$id' has leftovers of an abandoned sandbox; run 'hole list' to clean them up"
+        exit 1
+    fi
+    if ! project_path="$(cd "$path" 2>/dev/null && pwd -P)"; then
+        error "directory '$path' does not exist"
+        exit 1
+    fi
+    agent="${agent_spec%%:*}"
+    profile=""
+    case "$agent_spec" in *:*) profile="${agent_spec#*:}" ;; esac
+    project_name="$(basename "$project_path")"
+    started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    write_instance "$file" starting
+    echo "Instance ID: $id"
+
+    if [ -n "${FAKE_HOLE_START_EXIT:-}" ]; then
+        rm -f "$file"
+        error "fake start failure"
+        exit "$FAKE_HOLE_START_EXIT"
+    fi
+
+    teardown() {
+        write_instance "$file" stopping
+        echo "Destroying sandbox $id..."
+        sleep 0.3
+        rm -f "$file"
+        exit "$1"
+    }
+    if [ "${FAKE_HOLE_HANG:-}" = "1" ]; then
+        trap '' INT
+    else
+        trap 'teardown 130' INT
+        trap 'teardown 143' TERM
+        trap 'teardown 129' HUP
+    fi
+
+    if [ "${FAKE_HOLE_CHILD:-}" = "1" ]; then
+        echo "Building image..."
+        # foreground, like Hole waiting for `docker compose build`; the shell runs its own trap only once it ends
+        sh -c 'trap "echo interrupted > \"\$1/child.int\"; exit 130" INT; echo $$ > "$1/child.pid"
+               while :; do sleep 0.1; done' fake-hole-child "$state"
+    fi
+
+    running_after="${FAKE_HOLE_RUNNING_AFTER:-1}"
+    exit_after="${FAKE_HOLE_EXIT_AFTER:-}"
+    running_ticks="$(awk "BEGIN { print int($running_after * 10) }")"
+    exit_ticks="$(awk "BEGIN { print int(${exit_after:-0} * 10) }")"
+    ticks=0
+    status=starting
+    while :; do
+        sleep 0.1
+        ticks=$((ticks + 1))
+        if [ "$status" = starting ] && [ "$ticks" -ge "$running_ticks" ]; then
+            status=running
+            write_instance "$file" running
+            echo "Starting $agent agent..."
+        fi
+        if [ -n "$exit_after" ] && [ "$ticks" -ge "$exit_ticks" ]; then
+            teardown 0
+        fi
+    done
+}
+
+command="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$command" in
+    list) cmd_list "$@" ;;
+    start) cmd_start "$@" ;;
+    settings) cmd_settings "$@" ;;
+    version) cmd_version ;;
+    help) echo "Usage: hole {command} {agent}[:{profile}] {path} [options]"; exit 0 ;;
+    *) error "invalid command '$command'"; exit 1 ;;
+esac

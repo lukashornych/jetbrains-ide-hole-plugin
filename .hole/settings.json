@@ -1,0 +1,14 @@
+{
+  "network": {
+    "allow": [
+      "*.gradle.org",
+      "jetbrains.com",
+      "*.jetbrains.com",
+      "packages.jetbrains.team",
+      "*.jetbrains.team",
+      "d2cico3c979uwg.cloudfront.net",
+      "d2s4y8xcwt8bet.cloudfront.net",
+      "artifacts-caching-proxy.aws.intellij.net"
+    ]
+  }
+}

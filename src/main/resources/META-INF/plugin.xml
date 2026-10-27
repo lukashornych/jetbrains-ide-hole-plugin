@@ -1,0 +1,25 @@
+<idea-plugin>
+    <id>io.github.lukashornych.hole.idea</id>
+    <name>Hole</name>
+    <vendor url="https://github.com/lukashornych">Lukáš Hornych</vendor>
+    <description><![CDATA[
+        Start, manage and switch between <a href="https://github.com/lukashornych/hole">Hole</a> sandboxes
+        directly from the IDE. Each sandbox runs in its own tab of the <b>Hole</b> tool window.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.plugins.terminal</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Hole"
+                    anchor="bottom"
+                    canCloseContents="true"
+                    icon="/icons/holeToolWindow.svg"
+                    factoryClass="io.github.lukashornych.hole.idea.ui.HoleToolWindowFactory"/>
+        <notificationGroup id="Hole" displayType="BALLOON"/>
+        <applicationConfigurable parentId="tools"
+                                 id="io.github.lukashornych.hole.idea.settings"
+                                 displayName="Hole"
+                                 instance="io.github.lukashornych.hole.idea.ui.HoleSettingsConfigurable"/>
+    </extensions>
+</idea-plugin>
