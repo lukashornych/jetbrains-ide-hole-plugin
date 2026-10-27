@@ -155,6 +155,10 @@ section { display: flex; flex-direction: column; gap: 16px; }
 .pill.off { background: var(--ide-line); color: var(--ide-muted); }
 .pill.dbg { background: color-mix(in srgb, var(--t-warn) 18%, transparent); color: var(--t-warn); }
 .skel { display: inline-block; height: 10px; border-radius: 3px; background: var(--skel); animation: pulse 1.2s ease-in-out infinite; }
+.sb-tools { margin-left: auto; display: inline-flex; gap: 2px; align-items: center; }
+.kv .lnk { border: 0; background: none; padding: 0; font: inherit; font-size: 12px; color: var(--accent); cursor: pointer; }
+.kv .lnk.dim { color: var(--ide-muted); }
+.pill.click { cursor: pointer; }
 .btn-sm { font: inherit; font-size: 12px; height: 22px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--t-err); background: none; color: var(--t-err); cursor: pointer; }
 
 /* terminal */
@@ -164,6 +168,22 @@ section { display: flex; flex-direction: column; gap: 16px; }
 .cursor { display: inline-block; width: 7px; height: 14px; background: var(--term-text); vertical-align: -2px; animation: pulse 1s steps(1) infinite; }
 .empty { display: grid; place-items: center; color: var(--ide-muted); background: var(--term-bg); grid-row: 2 / 4; }
 .empty div { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.empty .favs { display: grid; grid-template-columns: auto auto; gap: 3px 14px; align-items: baseline; margin-top: 6px; }
+.empty .favs .grp { grid-column: 1 / -1; font-size: 11px; color: var(--ide-muted); margin-top: 4px; }
+.empty .favs .cmd { font-family: var(--font-mono); font-size: 11px; color: var(--ide-muted); }
+.empty .more { display: flex; flex-direction: row; gap: 14px; }
+/* network window */
+.net-win { border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; background: var(--ide-bg); color: var(--ide-text); max-width: 680px; font-size: 12.5px; }
+.net-win .nw-title { padding: 8px 14px; border-bottom: 1px solid var(--ide-line); font-weight: 600; }
+.net-win .nw-tabs { display: flex; gap: 18px; padding: 8px 14px 0; border-bottom: 1px solid var(--ide-line); }
+.net-win .nw-tabs span { padding-bottom: 6px; color: var(--ide-muted); }
+.net-win .nw-tabs span.on { color: var(--ide-text); border-bottom: 2px solid var(--accent); }
+.net-win table { width: 100%; border-collapse: collapse; }
+.net-win td, .net-win th { text-align: left; padding: 4px 14px; border-bottom: 1px solid var(--ide-line); }
+.net-win th { color: var(--ide-muted); font-weight: 500; }
+.net-win td.mono { font-family: var(--font-mono); font-size: 11.5px; }
+.net-win .nw-foot { display: flex; gap: 8px; padding: 8px 14px; align-items: center; }
+.net-win .hint { color: var(--ide-muted); font-size: 11.5px; padding: 6px 14px 0; }
 .linkbtn { border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; padding: 0; text-align: left; }
 
 /* markers */
@@ -297,16 +317,16 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
 
 <div class="wrap">
   <header class="doc">
-    <span class="eyebrow">Hole plugin for IntelliJ · design mockup · draft 4 · 21 Oct 2026</span>
+    <span class="eyebrow">Hole plugin for IntelliJ · design mockup · draft 5 · 27 Oct 2026</span>
     <h1>Hole Tool Window</h1>
-    <p class="lede">A working sketch of the plugin described in <code>documentation/specification.md</code>. It is a bottom tool window, like the built-in Terminal, where each tab is one running sandbox. Draft 3 adds links to the Hole settings files in the dialog and settles the Hole changes the plugin needs, which are written up in <code>documentation/hole-assignment-instance-id-and-list-json.md</code>.</p>
+    <p class="lede">A working sketch of the plugin described in <code>documentation/specification.md</code>. It is a bottom tool window, like the built-in Terminal, where each tab is one running sandbox. Draft 3 adds links to the Hole settings files in the dialog and settles the Hole changes the plugin needs, which are written up in <code>documentation/hole-assignment-instance-id-and-list-json.md</code>. Draft 5 adds the header toolbar (Restart, Network), the Docker toggle, the Global / Project settings links, favourites on the start page and the runtime Network window (<code>hole modify</code>); the uptime field is gone.</p>
   </header>
 
   <!-- ===== Tool window ===== -->
   <section aria-labelledby="s-tw">
     <div class="sec-head">
       <h2 id="s-tw">The tool window</h2>
-      <p>Tab titles show the agent and the title the agent writes to its terminal. Click the tabs to switch. Closing a tab sends SIGINT, shows <em>Stopping</em>, then selects the previous tab. <code>+</code> opens the New Sandbox dialog. The arrow next to it lists favourites: click a name to start it, or the bug icon to start it in a debug shell.</p>
+      <p>Tab titles show the agent and the title the agent writes to its terminal. Click the tabs to switch. Closing a tab sends SIGINT, shows <em>Stopping</em>, then selects the previous tab. <code>+</code> opens the New Sandbox dialog. The arrow next to it lists favourites: click a name to start it, or the bug icon to start it in a debug shell. In the header, the Docker pill of a running sandbox and the Restart button restart it in the same tab with a new instance ID; Network opens the window below. Close every tab to see the start page with favourites.</p>
     </div>
     <div class="toolbar-row">
       <label for="opt-markers"><input type="checkbox" id="opt-markers" checked> Show decision markers</label>
@@ -346,7 +366,7 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
               </div>
               <div class="sb-head" id="sbhead"></div>
               <div class="term" id="term" role="log" aria-live="polite"></div>
-              <div class="empty" id="empty" hidden><div><span>No sandboxes are running.</span><button class="linkbtn" type="button" id="btn-empty-new">New Sandbox…</button></div></div>
+              <div class="empty" id="empty" hidden><div><span>No sandboxes are running</span><button class="linkbtn" type="button" id="btn-empty-new">New Sandbox…</button><div class="favs" id="empty-favs"></div><div class="more"><button class="linkbtn" type="button" id="btn-empty-more">More…</button><button class="linkbtn" type="button" id="btn-empty-edit">Edit Favourites…</button></div></div></div>
               <span class="mk ui abs" style="left:62px;top:-9px">1</span>
               <span class="mk ui abs" style="right:10px;top:44px">3</span>
             </div>
@@ -473,13 +493,43 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
         <div class="state-cap"><b>Starting</b>The ID is known because the plugin passed it in. JSON is empty or says <code>"status": "starting"</code>. Amber dot.</div>
       </div>
       <div class="state-card">
-        <div class="sb-head"><span class="kv"><span class="k">Instance</span><span class="v">r8tq2c</span></span><span class="kv"><span class="k">Docker</span><span class="pill off">NO</span></span><span class="kv"><span class="k">Project</span><span class="v">…/projects/acme-cms</span></span><span class="kv"><span class="k">Up</span><span class="v">12s</span></span></div>
-        <div class="state-cap"><b>Running</b><code>"status": "running"</code>. Green dot. Uptime refreshes every few seconds.</div>
+        <div class="sb-head"><span class="kv"><span class="k">Instance</span><span class="v">r8tq2c</span></span><span class="kv"><span class="k">Docker</span><span class="pill off">NO</span></span><span class="kv"><span class="k">Settings</span><button class="lnk" type="button">Global</button><button class="lnk dim" type="button" title="Not used by this sandbox; restart to apply after creating it">Project</button></span><span class="kv"><span class="k">Project</span><span class="v">…/projects/acme-cms</span></span><span class="sb-tools"><button class="ibtn" type="button" title="Restart Sandbox">↻</button><button class="ibtn" type="button" title="Network…">◎</button></span></div>
+        <div class="state-cap"><b>Running</b><code>"status": "running"</code>. Green dot. Restart, Network and the Docker toggle are enabled only now. The dimmed <em>Project</em> link: the sandbox uses no project settings file.</div>
       </div>
       <div class="state-card">
         <div class="sb-head"><span class="kv"><span class="k">Instance</span><span class="v">r8tq2c</span></span><span class="kv" style="color:var(--t-err)">Stopping for 34s</span><button class="btn-sm" type="button">Force Stop</button></div>
-        <div class="state-cap"><b>Stopping</b>SIGINT was sent. After 30 seconds the header offers Force Stop. <span class="mk doc" style="display:inline-grid;vertical-align:-4px">7</span></div>
+        <div class="state-cap"><b>Stopping</b>SIGINT was sent. After 30 seconds the header offers Force Stop. During a restart it reads <em>Restarting for N s</em>, and Force Stop keeps the tab: the new sandbox starts once the old process is gone. <span class="mk doc" style="display:inline-grid;vertical-align:-4px">7</span></div>
       </div>
+    </div>
+  </section>
+
+  <!-- ===== Network window ===== -->
+  <section aria-labelledby="s-net">
+    <div class="sec-head">
+      <h2 id="s-net">Runtime network <span class="mk doc">17</span></h2>
+      <p>Network in the header opens a non-modal window like Hole's <code>hole modify</code> TUI. Tabs: <em>Allowed</em> (<code>network.allow</code>), <em>Host gateway</em> (<code>network.hostGatewayDomains</code>) and <em>Blocked</em>. Only runtime entries can be removed. On the Blocked tab, Allow (<code>name:443,80</code>), Allow on Ports… (<code>name:</code>) and Allow <code>*.parent</code> open the Add input prefilled.</p>
+    </div>
+    <div class="net-win">
+      <div class="nw-title">Network · acme-cms · claude (k3x9a2)</div>
+      <div class="nw-tabs"><span class="on">Allowed</span><span>Host gateway</span><span>Blocked</span></div>
+      <table>
+        <thead><tr><th>Entry</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">api.example.com:443</td><td>settings</td></tr>
+          <tr><td class="mono">registry.example.org:443,80</td><td>agent:claude</td></tr>
+          <tr><td class="mono">*.cdn.example.net:443</td><td>runtime</td></tr>
+        </tbody>
+      </table>
+      <div class="hint">From settings — edit the settings file and restart</div>
+      <div class="nw-foot"><button class="btn" type="button">Add…</button><button class="btn" type="button">Remove</button><button class="btn" type="button">Refresh</button></div>
+      <table>
+        <thead><tr><th>Name (Blocked tab)</th><th>Count</th><th>Last seen</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">telemetry.example.com</td><td>12</td><td>2026-10-27 10:25:40</td></tr>
+          <tr><td class="mono">cdn.a.b.example.org</td><td>1</td><td>2026-10-27 09:02:11</td></tr>
+        </tbody>
+      </table>
+      <div class="nw-foot"><button class="btn" type="button">Allow</button><button class="btn" type="button">Allow on Ports…</button><button class="btn" type="button">Allow *.b.example.org</button><button class="btn" type="button">Refresh</button></div>
     </div>
   </section>
 
@@ -499,6 +549,10 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
         <div class="steps"><span class="step">/exit in agent</span><span class="arr">→</span><span class="step">Hole tears down</span><span class="arr">→</span><span class="step">hole process exits</span><span class="arr">→</span><span class="step end">Tab closes, previous tab selected</span></div>
       </div>
       <div class="flow">
+        <div class="trig">Restart <span class="mk doc">14</span></div>
+        <div class="steps"><span class="step">Restart or Docker pill</span><span class="arr">→</span><span class="step">Confirm</span><span class="arr">→</span><span class="step">SIGINT, “Restarting”</span><span class="arr">→</span><span class="step">hole process exits</span><span class="arr">→</span><span class="step end">New hole start, new ID, same tab</span></div>
+      </div>
+      <div class="flow">
         <div class="trig">IDE closes</div>
         <div class="steps"><span class="step">IDE shutdown</span><span class="arr">→</span><span class="step">Plugin sends SIGINT to every sandbox</span><span class="arr">→</span><span class="step end">No waiting</span></div>
       </div>
@@ -514,7 +568,7 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
     <ol class="decisions">
       <li><span class="mk doc">1</span><div><h3>Tab title <span class="status agreed">Agreed</span></h3><p class="ans"><code>agent[:profile] · agent title</code>. The agent title is whatever the agent sets through the terminal title escape (OSC 0/2), so the tab shows what the agent is doing.</p><p>Until the agent sets a title, or for agents that never set one, the tab shows the project folder in italics. A debug run shows a bug icon.</p></div></li>
       <li><span class="mk doc">2</span><div><h3>“+” and the favourites dropdown <span class="status agreed">Agreed</span></h3><p class="ans"><code>+</code> opens New Sandbox. The arrow next to it lists favourites for a one-click start, with a debug start on each row, plus <em>New Sandbox…</em> and <em>Edit Favourites…</em>.</p></div></li>
-      <li><span class="mk doc">3</span><div><h3>Header fields <span class="status agreed">Agreed</span></h3><p class="ans">Instance ID, Docker, settings, project path and uptime. A debug run also shows a Debug Shell pill. The network is left out.</p></div></li>
+      <li><span class="mk doc">3</span><div><h3>Header fields <span class="status agreed">Agreed</span></h3><p class="ans">Instance ID, Docker, settings (Global / Project links) and project path. A debug run also shows a Debug Shell pill. The network is left out. Uptime was removed in draft 5. A small toolbar at the right end holds Restart and Network.</p></div></li>
       <li><span class="mk doc">5</span><div><h3>Where favourites are stored <span class="status agreed">Agreed</span></h3><p class="ans">Both. Each favourite says where it lives: this project (<code>.idea/hole.xml</code>) or all projects (IDE settings). The dropdown groups them that way.</p></div></li>
       <li class="wide"><span class="mk doc">4</span><div>
         <h3>Getting sandbox metadata without parsing the terminal <span class="status agreed">Agreed</span> <span class="status hole">Hole change</span></h3>
@@ -549,7 +603,12 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
       <li><span class="mk doc">10</span><div><h3>Shell or direct process <span class="status agreed">Agreed</span></h3><p class="ans"><code>hole</code> runs directly as the terminal's process.</p></div></li>
       <li><span class="mk doc">11</span><div><h3>Ad-hoc starts and favourites <span class="status agreed">Agreed</span></h3><p class="ans">New Sandbox opens with defaults. A favourite only exists when the user saves one.</p></div></li>
       <li><span class="mk doc">12</span><div><h3>Remember the last ad-hoc values? <span class="status agreed">Agreed</span></h3><p class="ans">No. New Sandbox always opens with defaults, and there is no Recent group.</p></div></li>
-      <li class="wide"><span class="mk doc">13</span><div><h3>Hole settings files <span class="status agreed">Agreed</span></h3><p class="ans">Both dialog views link to the global settings file and, if it exists under the selected project path, to the project's <code>.hole/settings.json</code>. <b>Open</b> opens the file in an IDE editor tab, and the arrow icon opens it in the system's default editor. The plugin does not build a GUI for the settings themselves, because their keys change often.</p><p>The paths follow Hole's rules: <code>HOLE_SETTINGS_FILE</code> or <code>~/.hole/settings.json</code>, and <code>HOLE_PROJECT_SETTINGS_FILE</code> or <code>&lt;path&gt;/.hole/settings.json</code>, read from the IDE's environment. The existence check runs again whenever the project path changes. For a running sandbox, <code>settingsFiles</code> from <code>hole list --json</code> names the exact files it was started with.</p></div></li>
+      <li class="wide"><span class="mk doc">13</span><div><h3>Hole settings files <span class="status agreed">Agreed</span></h3><p class="ans">Both dialog views link to the global settings file and to the project's <code>.hole/settings.json</code> of the selected project path. A missing file shows <em>(not created)</em> and a <b>Create</b> link (<code>hole settings create</code>, after a confirmation; the dialog stays open). <b>Open</b> opens the file in an IDE editor tab, and the arrow icon opens it in the system's default editor. The plugin does not build a GUI for the settings themselves, because their keys change often.</p><p>The paths follow Hole's rules: <code>HOLE_SETTINGS_FILE</code> or <code>~/.hole/settings.json</code>, and <code>HOLE_PROJECT_SETTINGS_FILE</code> or <code>&lt;path&gt;/.hole/settings.json</code>, read from the IDE's environment. The existence check runs again whenever the project path changes. For a running sandbox, <code>settingsFiles</code> from <code>hole list --json</code> names the exact files it was started with.</p></div></li>
+      <li><span class="mk doc">14</span><div><h3>Restart in the same tab <span class="status agreed">Agreed</span></h3><p class="ans">Restart (header toolbar) and the Docker pill restart a running sandbox in its tab with a <b>new instance ID</b>: after Force Stop or Hole's relay timeout the old one is still taken. Only while running.</p></div></li>
+      <li><span class="mk doc">15</span><div><h3>Confirm every restart <span class="status agreed">Agreed</span></h3><p class="ans">Both Restart and the Docker toggle always ask, without <em>Do not ask again</em>; the question also says how many entries added with <code>hole modify</code> will be lost.</p></div></li>
+      <li><span class="mk doc">16</span><div><h3>Settings files created through Hole <span class="status agreed">Agreed</span></h3><p class="ans">The header's Global / Project links and the dialogs' Create links run <code>hole settings create</code> for a missing file (never <code>--overwrite</code>); the header then opens it in an editor.</p></div></li>
+      <li><span class="mk doc">17</span><div><h3>Network window applies at once <span class="status agreed">Agreed</span></h3><p class="ans">Every add or remove is one <code>hole modify</code> call and one gateway apply; TUI-like staging may come later. Blocked names are reloaded on open, Refresh and after an add, never on a timer.</p></div></li>
+      <li><span class="mk doc">18</span><div><h3>Favourites on the start page <span class="status agreed">Agreed</span></h3><p class="ans">The empty tool window lists up to five favourites (project ones first) with <em>More…</em> and <em>Edit Favourites…</em>. A click starts the agent; Debug Shell stays in the dropdown.</p></div></li>
     </ol>
   </section>
 </div>
@@ -576,7 +635,7 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
   const tabs = [
     {
       key: ++seq, agent: "claude", profile: "", project: ROOT, id: "k3x9pq", docker: true, ready: true,
-      settings: SETTINGS, uptime: "42m", network: "hole-evitadb-k3x9pq_sandbox", status: "running", title: "✳ Fix EntityIndexTest",
+      settings: SETTINGS, network: "hole-evitadb-k3x9pq_sandbox", status: "running", title: "✳ Fix EntityIndexTest",
       lines: [
         '<span class="t-dim">Instance ID: k3x9pq</span>',
         '<span class="t-dim">Starting network gateway...</span>',
@@ -602,7 +661,7 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
     },
     {
       key: ++seq, agent: "codex", profile: "review", project: "/Users/dev/projects/acme-shop", id: "7m2ahw", docker: false, ready: true,
-      settings: "global(~/.hole/settings.json)", uptime: "3m", network: "hole-acme-shop-7m2ahw_sandbox", status: "running", title: "",
+      settings: "global(~/.hole/settings.json)", network: "hole-acme-shop-7m2ahw_sandbox", status: "running", title: "",
       lines: [
         '<span class="t-dim">Instance ID: 7m2ahw</span>',
         '<span class="t-dim">Starting network gateway...</span>',
@@ -658,22 +717,67 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
     const sk = (w) => '<span class="skel" style="width:' + w + 'px"></span>';
     let h = kv("Instance", '<span class="v">' + t.id + "</span>");
     if (t.debug) h += '<span class="pill dbg">DEBUG SHELL</span>';
+    const running = t.ready && t.status === "running";
     if (t.ready) {
-      h += kv("Docker", t.docker ? '<span class="pill on">ON</span>' : '<span class="pill off">NO</span>');
-      h += kv("Settings", '<span class="v">' + esc(t.settings) + "</span>");
+      const tip = running ? ' title="Click to restart the sandbox with Docker-in-Docker ' + (t.docker ? "off" : "on") + '"' : "";
+      h += kv("Docker", '<span class="pill ' + (t.docker ? "on" : "off") + (running ? " click" : "") + '" id="hd-docker"' + tip + ">" + (t.docker ? "ON" : "NO") + "</span>");
+      const proj = t.settings.includes("project");
+      h += kv("Settings", '<button class="lnk" type="button" title="' + esc(t.settings) + '">Global</button>'
+        + '<button class="lnk' + (proj ? "" : " dim") + '" type="button" title="' + (proj ? esc(t.settings) : "Not used by this sandbox; restart to apply after creating it") + '">Project</button>');
       h += kv("Project", '<span class="v">' + esc(absPath(t.project)) + "</span>");
-      h += kv("Up", '<span class="v">' + t.uptime + "</span>");
     } else {
       h += kv("Docker", sk(26)) + kv("Settings", sk(150)) + kv("Project", sk(180));
     }
     if (t.status === "stopping") h += '<span class="kv" style="color:var(--t-err)">Stopping sandbox…</span>';
+    if (t.status === "restarting") h += '<span class="kv" style="color:var(--t-err)">Restarting sandbox…</span>';
+    const dis = running ? "" : " disabled";
+    h += '<span class="sb-tools"><button class="ibtn" type="button" id="hd-restart" title="Restart Sandbox"' + dis + '>↻</button>'
+      + '<button class="ibtn" type="button" id="hd-network" title="Network…"' + dis + ">◎</button></span>";
     $("#sbhead").innerHTML = h;
+    if (running) {
+      $("#hd-docker").addEventListener("click", () => restartTab(t, !t.docker));
+      $("#hd-restart").addEventListener("click", () => restartTab(t, t.docker));
+      $("#hd-network").addEventListener("click", () => $("#s-net").scrollIntoView({ behavior: reduce, block: "start" }));
+    }
     const term = $("#term");
     term.innerHTML = t.lines.join("\n");
     term.scrollTop = term.scrollHeight;
   }
 
-  function render() { renderTabs(); renderBody(); }
+  function renderEmpty() {
+    const host = $("#empty-favs");
+    host.innerHTML = "";
+    const shown = [...favs.filter((f) => f.scope === "Project"), ...favs.filter((f) => f.scope === "Global")].slice(0, 5);
+    let group = null;
+    shown.forEach((f) => {
+      if (f.scope !== group) {
+        group = f.scope;
+        host.insertAdjacentHTML("beforeend", '<span class="grp">' + (group === "Project" ? "This project" : "All projects") + "</span>");
+      }
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "linkbtn"; b.textContent = f.name;
+      b.addEventListener("click", () => startSandbox(f, false));
+      host.appendChild(b);
+      host.insertAdjacentHTML("beforeend", '<span class="cmd">' + esc(f.agent + (f.profile ? ":" + f.profile : "") + " " + f.project) + "</span>");
+    });
+    $("#btn-empty-more").hidden = favs.length <= 5;
+  }
+
+  // the old process ends after SIGINT, then hole start runs again in this tab with a new instance ID
+  function restartTab(t, docker) {
+    t.status = "restarting";
+    t.lines = t.lines.map((l) => l.replace('<span class="cursor"></span>', ""));
+    t.lines.push("", '<span class="t-dim">^C</span>', '<span class="t-dim">Stopping sandbox ' + t.id + " for a restart...</span>");
+    render();
+    setTimeout(() => {
+      t.id = rid(); t.docker = docker; t.status = "starting"; t.ready = false; t.title = "";
+      t.lines = ['<span class="t-dim">Instance ID: ' + t.id + "</span>", '<span class="cursor"></span>'];
+      render();
+      setTimeout(() => { t.status = "running"; t.ready = true; render(); }, 1200);
+    }, 1400);
+  }
+
+  function render() { renderTabs(); renderBody(); renderEmpty(); }
   function select(key) {
     if (key === active) return;
     history = history.filter((k) => k !== active);
@@ -706,7 +810,7 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
     const id = rid();
     const t = {
       key: ++seq, agent: cfg.agent, profile: cfg.profile, project: cfg.project, id, docker: cfg.docker, debug,
-      settings: SETTINGS, uptime: "0s", network: "hole-" + folder(cfg.project).toLowerCase() + "-" + id + "_sandbox",
+      settings: SETTINGS, network: "hole-" + folder(cfg.project).toLowerCase() + "-" + id + "_sandbox",
       status: "starting", ready: false, title: "",
       lines: ['<span class="cursor"></span>'],
     };
@@ -960,6 +1064,8 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
 
   $("#btn-new").addEventListener("click", () => showDialog("new"));
   $("#btn-empty-new").addEventListener("click", () => showDialog("new"));
+  $("#btn-empty-edit").addEventListener("click", () => showDialog("fav"));
+  $("#btn-empty-more").addEventListener("click", (e) => { e.stopPropagation(); $("#btn-favmenu").click(); });
   $("#btn-replay").addEventListener("click", () => startSandbox({ ...DEFAULTS, profile: "research", project: "/Users/dev/projects/acme-cms" }, false));
   $("#opt-markers").addEventListener("change", (e) => document.body.classList.toggle("no-markers", !e.target.checked));
 

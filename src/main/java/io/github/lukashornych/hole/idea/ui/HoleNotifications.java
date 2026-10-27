@@ -42,6 +42,23 @@ public final class HoleNotifications implements StartFailureNotifier {
         notify("Hole sandbox not started", "The Hole process could not be started: " + reason, NotificationType.ERROR);
     }
 
+    @Override
+    public void restartFailed(@NotNull String reason) {
+        notify("Hole sandbox could not be restarted",
+            "The old sandbox is gone, and the new Hole process could not be started: " + reason, NotificationType.ERROR);
+    }
+
+    /**
+     * A settings file from the sandbox header could not be opened or created.
+     *
+     * @param scope   `global` or `project`
+     * @param message Hole's message
+     */
+    public void settingsFileFailed(@NotNull String scope, @NotNull String message) {
+        notify("Hole " + scope + " settings not opened", message.isBlank() ? "Hole gave no reason." : message,
+            NotificationType.WARNING);
+    }
+
     private void notify(@NotNull String title, @NotNull String message, @NotNull NotificationType type) {
         final Notification notification = NotificationGroupManager.getInstance()
             .getNotificationGroup(GROUP_ID)

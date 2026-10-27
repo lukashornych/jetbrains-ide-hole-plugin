@@ -42,6 +42,10 @@ import java.util.concurrent.TimeoutException;
  * <p>When Hole rejects the chosen instance ID (in use, or leftovers of an abandoned sandbox), the session starts once
  * more with a new ID in the same tab.</p>
  *
+ * <p>{@link #restart(Launch)} replaces a RUNNING sandbox in the same tab: SIGINT like a close, but when the process has
+ * exited a new `hole start` (with a new instance ID and the given launch) is spawned instead of closing the tab. A
+ * close request while the restart is pending wins; Force Stop during a restart only kills the old process.</p>
+ *
  * <p>Thread-safe. Listeners are called on the thread that caused the change (process reaper, poller, terminal
  * emulator or caller thread) and must switch to the EDT themselves.</p>
  */
@@ -55,10 +59,11 @@ public final class SandboxSession {
     private static final Logger LOG = Logger.getInstance(SandboxSession.class);
     private static final int EARLY_OUTPUT_LIMIT = 16 * 1024;
 
-    private final Launch launch;
     private final SessionServices services;
     private final Listener listener;
 
+    /** What the current process runs; replaced by a restart. Guarded by {@code this}. */
+    private Launch launch;
     /** Current process; {@code null} before {@link #start()}. Guarded by {@code this}. */
     private Attempt attempt;
     /** Guarded by {@code this}. */
@@ -77,6 +82,10 @@ public final class SandboxSession {
     private boolean closeRequested;
     /** The duplicate-ID retry was used. Guarded by {@code this}. */
     private boolean retried;
+    /** {@link #restart(Launch)} stopped the process; start {@link #pendingLaunch} when it exits. Guarded by {@code this}. */
+    private boolean restartPending;
+    /** What to start after a pending restart, {@code null} when none. Guarded by {@code this}. */
+    private Launch pendingLaunch;
     /** No listener calls any more. Guarded by {@code this}. */
     private boolean disposed;
 
@@ -99,10 +108,10 @@ public final class SandboxSession {
     }
 
     /**
-     * Returns what this session started.
+     * Returns what the current process of this session runs (the launch of the last restart, if any).
      */
     @NotNull
-    public Launch launch() {
+    public synchronized Launch launch() {
         return this.launch;
     }
 
@@ -113,17 +122,19 @@ public final class SandboxSession {
      */
     public void start() throws IOException {
         final String id;
+        final Launch first;
         synchronized (this) {
             if (this.attempt != null) {
                 throw new IllegalStateException("Session " + this.instanceId + " is already started.");
             }
             id = this.instanceId;
+            first = this.launch;
         }
-        final Attempt first = spawn(id);
+        final Attempt firstAttempt = spawn(first, id);
         synchronized (this) {
-            this.attempt = first;
+            this.attempt = firstAttempt;
         }
-        watch(first);
+        watch(firstAttempt);
     }
 
     /**
@@ -133,7 +144,7 @@ public final class SandboxSession {
     public synchronized Snapshot snapshot() {
         return new Snapshot(
             this.state, this.instanceId, this.info, this.exitCode, this.stoppingSince, this.agentTitle,
-            this.closeRequested
+            this.closeRequested, this.restartPending
         );
     }
 
@@ -187,6 +198,9 @@ public final class SandboxSession {
                 current = null;
             } else {
                 this.closeRequested = true;
+                // a close wins over a pending restart: the tab closes when the process exits
+                this.restartPending = false;
+                this.pendingLaunch = null;
                 enterStoppingLocked();
                 current = this.attempt;
             }
@@ -199,8 +213,41 @@ public final class SandboxSession {
     }
 
     /**
+     * Restarts a RUNNING sandbox in the same tab: SIGINT to the process group of `hole start` (like a close), and once
+     * the process has exited a new `hole start` with a new instance ID and {@code next} (config, executable and
+     * environment may differ from the current launch). The terminal must reconnect on
+     * {@link Listener#processRestarted(SandboxSession)}; when the new process cannot be spawned, the session becomes
+     * EXITED and {@link Listener#restartFailed(SandboxSession, String)} is called.
+     *
+     * <p>Only a RUNNING session can be restarted: not while it starts (Hole has not reported it yet), stops (a close or
+     * a restart is pending) or has exited.</p>
+     *
+     * @param next what to start after the current process has exited
+     * @return {@code false} when the session is not RUNNING; nothing changed then
+     */
+    public boolean restart(@NotNull Launch next) {
+        Objects.requireNonNull(next, "next");
+        final Attempt current;
+        synchronized (this) {
+            if (this.state != SessionState.RUNNING || this.closeRequested || this.disposed || this.attempt == null) {
+                return false;
+            }
+            this.restartPending = true;
+            this.pendingLaunch = next;
+            enterStoppingLocked();
+            current = this.attempt;
+        }
+        LOG.info("Restarting sandbox " + current.instanceId + " (" + next.describe() + ")");
+        signal(current, ProcessSignaller.SIGINT, "SIGINT");
+        this.services.metadata().refreshNow();
+        fireChanged();
+        return true;
+    }
+
+    /**
      * Force Stop: SIGKILL to the process group of `hole start`. The tab closes when it exits; Hole's watchdog, which
-     * runs in its own session and is therefore not killed, keeps tearing the sandbox down in the background.
+     * runs in its own session and is therefore not killed, keeps tearing the sandbox down in the background. During a
+     * pending restart only the old process is killed: the tab stays and the restart goes on once it has exited.
      */
     public void forceStop() {
         final Attempt current;
@@ -208,7 +255,9 @@ public final class SandboxSession {
             if (!this.state.isAlive()) {
                 return;
             }
-            this.closeRequested = true;
+            if (!this.restartPending) {
+                this.closeRequested = true;
+            }
             enterStoppingLocked();
             current = this.attempt;
         }
@@ -237,6 +286,8 @@ public final class SandboxSession {
         final Attempt current;
         synchronized (this) {
             this.disposed = true;
+            this.restartPending = false;
+            this.pendingLaunch = null;
             current = this.attempt;
             if (this.state.isAlive()) {
                 this.closeRequested = true;
@@ -268,22 +319,27 @@ public final class SandboxSession {
     }
 
     @NotNull
-    private Attempt spawn(@NotNull String id) throws IOException {
-        final String executable = this.launch.executable().toString();
-        final List<String> command = this.launch.debug()
-            ? HoleCommandBuilder.debug(executable, this.launch.config(), id)
-            : HoleCommandBuilder.start(executable, this.launch.config(), id);
-        final PtyProcess process = this.services.runner().spawn(command, this.launch.workingDirectory(), this.launch.environment());
+    private Attempt spawn(@NotNull Launch with, @NotNull String id) throws IOException {
+        final String executable = with.executable().toString();
+        final List<String> command = with.debug()
+            ? HoleCommandBuilder.debug(executable, with.config(), id)
+            : HoleCommandBuilder.start(executable, with.config(), id);
+        final PtyProcess process = this.services.runner().spawn(command, with.workingDirectory(), with.environment());
         return new Attempt(id, process);
     }
 
     private void watch(@NotNull Attempt current) {
-        current.subscription = this.services.metadata().subscribe(current.instanceId, new MetadataPoller.Listener() {
-            @Override
-            public void instanceUpdated(@Nullable InstanceInfo update) {
-                metadataReceived(current, update);
-            }
-        });
+        try {
+            current.subscription = this.services.metadata().subscribe(current.instanceId, new MetadataPoller.Listener() {
+                @Override
+                public void instanceUpdated(@Nullable InstanceInfo update) {
+                    metadataReceived(current, update);
+                }
+            });
+        } catch (IllegalStateException e) {
+            // the poller is disposed (IDE shutdown): no metadata any more, but the exit must still be handled
+            LOG.info("No metadata for sandbox " + current.instanceId + ": " + e.getMessage());
+        }
         // not Process.onExit(): pty4j does not override it, and the JDK default parks a ForkJoinPool common-pool
         // thread in waitFor() for the whole life of the sandbox
         this.services.background().execute(() -> {
@@ -338,13 +394,23 @@ public final class SandboxSession {
         exited.exited = true;
         final int code = exitValue(exited.process);
         final boolean mayRetry;
+        final Launch restartWith;
         synchronized (this) {
             if (exited != this.attempt) {
                 return;
             }
+            // restartPending stays set until the new process is installed (or the restart ends), so the spawn window
+            // still renders as "Restarting" and a Force Stop in it does not cancel the restart
+            restartWith = this.restartPending && !this.closeRequested && !this.disposed ? this.pendingLaunch : null;
             mayRetry = !this.closeRequested && code != 0 && !this.retried && !this.disposed;
         }
         exited.unsubscribe();
+
+        // before the duplicate-ID check: the exit after SIGINT is expected and the output wait would only delay
+        if (restartWith != null) {
+            restartExited(exited, code, restartWith);
+            return;
+        }
 
         if (mayRetry && exited.connected && exited.reportsDuplicateId()) {
             final String newId = this.services.instanceIds().get();
@@ -352,7 +418,7 @@ public final class SandboxSession {
                 this.retried = true;
             }
             LOG.info("Hole rejected instance ID " + exited.instanceId + " (in use or leftovers); starting sandbox again as " + newId);
-            if (restart(newId)) {
+            if (retry(newId)) {
                 return;
             }
         }
@@ -362,47 +428,115 @@ public final class SandboxSession {
             this.state = this.closeRequested || code == 0 ? SessionState.CLOSED : SessionState.EXITED;
         }
         if (code != 0) {
-            LOG.info("Sandbox " + exited.instanceId + " (" + this.launch.describe() + ") exited with code " + code
+            LOG.info("Sandbox " + exited.instanceId + " (" + launch().describe() + ") exited with code " + code
                 + (this.snapshot().closeRequested() ? " after a stop request" : ""));
         }
         fireChanged();
     }
 
     /**
-     * Replaces the exited process by a new one with another instance ID.
+     * The process stopped by {@link #restart(Launch)} has exited: starts the new one with a new instance ID. When it
+     * cannot be spawned, the session becomes EXITED with the old exit code and the listener is told.
+     */
+    private void restartExited(@NotNull Attempt exited, int code, @NotNull Launch next) {
+        if (isClosing()) {
+            // a close request or shutdown came in between: no new process, the tab closes
+            finishExited(code, false);
+            fireChanged();
+            return;
+        }
+        final String newId = this.services.instanceIds().get();
+        LOG.info("Sandbox " + exited.instanceId + " stopped for a restart (exit code " + code + "); starting it as " + newId);
+        final Attempt nextAttempt;
+        try {
+            nextAttempt = spawn(next, newId);
+        } catch (IOException | RuntimeException e) {
+            // like a failed start: the user is told, the tab stays with the old output
+            LOG.warn("Could not restart sandbox (" + next.describe() + ", instance " + newId + "): " + e.getMessage());
+            if (finishExited(code, true)) {
+                this.listener.restartFailed(this, Objects.requireNonNullElse(e.getMessage(), e.getClass().getSimpleName()));
+            }
+            fireChanged();
+            return;
+        }
+        install(nextAttempt, next, true);
+    }
+
+    /**
+     * Ends the session after the process stopped for a restart has exited without a successor.
+     *
+     * @param failed the new process could not be spawned (otherwise a close request or shutdown cancelled the restart)
+     * @return {@code true} when the session is EXITED (the user must be told), {@code false} when it is CLOSED
+     */
+    private synchronized boolean finishExited(int code, boolean failed) {
+        this.restartPending = false;
+        this.pendingLaunch = null;
+        this.exitCode = code;
+        this.state = failed && !this.closeRequested && !this.disposed ? SessionState.EXITED : SessionState.CLOSED;
+        return this.state == SessionState.EXITED;
+    }
+
+    /**
+     * Replaces the exited process by a new one with another instance ID (duplicate-ID retry).
      *
      * @return {@code false} when the session is closing or the new process could not be spawned
      */
-    private boolean restart(@NotNull String newId) {
-        synchronized (this) {
-            if (this.closeRequested || this.disposed) {
-                return false;
-            }
-        }
-        final Attempt next;
-        try {
-            next = spawn(newId);
-        } catch (IOException e) {
-            LOG.warn("Could not start sandbox again (" + this.launch.describe() + ", instance " + newId + "): " + e.getMessage());
+    private boolean retry(@NotNull String newId) {
+        if (isClosing()) {
             return false;
         }
+        final Launch current = launch();
+        final Attempt nextAttempt;
+        try {
+            nextAttempt = spawn(current, newId);
+        } catch (IOException e) {
+            LOG.warn("Could not start sandbox again (" + current.describe() + ", instance " + newId + "): " + e.getMessage());
+            return false;
+        }
+        install(nextAttempt, current, false);
+        return true;
+    }
+
+    /**
+     * Makes a freshly spawned process the current one and tells the terminals to reconnect.
+     *
+     * @param nextAttempt the new process
+     * @param next        what it runs
+     * @param restart     a user restart: also forgets the retry, exit code, stopping time and agent title of the old one
+     */
+    private void install(@NotNull Attempt nextAttempt, @NotNull Launch next, boolean restart) {
         final boolean closing;
         synchronized (this) {
-            this.attempt = next;
-            this.instanceId = newId;
+            this.attempt = nextAttempt;
+            this.instanceId = nextAttempt.instanceId;
+            this.launch = next;
             this.info = null;
             this.state = SessionState.STARTING;
+            this.restartPending = false;
+            this.pendingLaunch = null;
+            if (restart) {
+                // the new process gets its own duplicate-ID retry and a fresh header
+                this.retried = false;
+                this.exitCode = null;
+                this.stoppingSince = null;
+                this.agentTitle = "";
+            }
             closing = this.disposed || this.closeRequested;
         }
-        watch(next);
         if (closing) {
-            // shutdown() or a close request came while the new process was spawned and signalled the old one
-            signal(next, ProcessSignaller.SIGINT, "SIGINT");
-            return true;
+            // shutdown() or a close request came while the new process was spawned and signalled the old one; SIGINT
+            // first, because the poller may already be disposed (IDE shutdown)
+            signal(nextAttempt, ProcessSignaller.SIGINT, "SIGINT");
+            watch(nextAttempt);
+            return;
         }
+        watch(nextAttempt);
         this.listener.processRestarted(this);
         fireChanged();
-        return true;
+    }
+
+    private synchronized boolean isClosing() {
+        return this.closeRequested || this.disposed;
     }
 
     private void signal(@NotNull Attempt target, int signal, @NotNull String name) {
@@ -494,6 +628,7 @@ public final class SandboxSession {
      * @param stoppingSince  when STOPPING began
      * @param agentTitle     terminal title set by the agent, empty when none
      * @param closeRequested the plugin stopped the sandbox
+     * @param restartPending the process is stopping for a restart in the same tab
      */
     public record Snapshot(
         @NotNull SessionState state,
@@ -502,7 +637,8 @@ public final class SandboxSession {
         @Nullable Integer exitCode,
         @Nullable Instant stoppingSince,
         @NotNull String agentTitle,
-        boolean closeRequested
+        boolean closeRequested,
+        boolean restartPending
     ) {
     }
 
@@ -517,9 +653,17 @@ public final class SandboxSession {
         void sessionChanged(@NotNull SandboxSession session);
 
         /**
-         * The process was replaced (retry with a new instance ID); terminals must reconnect.
+         * The process was replaced (retry with a new instance ID, or a restart); terminals must reconnect.
          */
         void processRestarted(@NotNull SandboxSession session);
+
+        /**
+         * A restart stopped the old process, but the new one could not be spawned; the session is EXITED now.
+         *
+         * @param reason message of the failure, without the command line
+         */
+        default void restartFailed(@NotNull SandboxSession session, @NotNull String reason) {
+        }
     }
 
     /**

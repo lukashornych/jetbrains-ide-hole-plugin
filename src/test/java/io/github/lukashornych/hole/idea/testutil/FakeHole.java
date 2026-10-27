@@ -94,7 +94,7 @@ public final class FakeHole {
             {"instanceId": "%s", "instanceName": "demo-%s", "status": "%s", "agent": "claude", "profile": "",
              "projectPath": "/work/demo", "projectName": "demo", "startedAt": "2026-10-21T10:14:03+02:00",
              "uptimeSeconds": 5, "docker": false, "networks": [], "settings": ["global(~/.hole/settings.json)"],
-             "settingsFiles": [], "flags": {"debug": false, "rebuild": false, "unrestricted": false,
+             "settingsFiles": [], "runtimeEntryCount": 0, "flags": {"debug": false, "rebuild": false, "unrestricted": false,
              "dumpNetworkAccess": false, "withDocker": false}, "pid": 4242, "version": "2.6.0"}
             """.formatted(id, id, status);
         try {

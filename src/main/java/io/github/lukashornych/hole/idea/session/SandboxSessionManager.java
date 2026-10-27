@@ -35,8 +35,8 @@ import java.util.function.Supplier;
  * SIGINT and the manager removes the tab itself when the process has exited. Before it removes a selected tab it
  * selects the previously selected one.</p>
  *
- * <p>Threading: {@link #start} probes and spawns on a background thread; all view calls and the session list are
- * confined to the UI executor (the EDT in the IDE).</p>
+ * <p>Threading: {@link #start} and {@link #restart} probe and spawn on a background thread; all view calls and the
+ * session list are confined to the UI executor (the EDT in the IDE).</p>
  */
 @Service(Service.Level.PROJECT)
 public final class SandboxSessionManager implements Disposable {
@@ -169,6 +169,39 @@ public final class SandboxSessionManager implements Disposable {
     }
 
     /**
+     * Restarts a RUNNING sandbox in its tab (see {@link SandboxSession#restart(SandboxSession.Launch)}), e.g. to apply
+     * changed settings files or another config. Hole is probed again first, so the restart uses the current
+     * executable and environment; when Hole is missing or too old now, the user is notified and the running sandbox is
+     * left alone. Does nothing unless the session is RUNNING.
+     *
+     * @param session   the session to restart
+     * @param newConfig the config of the new sandbox, or {@code null} to keep the current one
+     * @return completes with {@code true} once the old process got SIGINT, or with {@code false} when nothing was
+     * restarted (the user was notified when Hole could not be used)
+     */
+    @NotNull
+    public CompletableFuture<Boolean> restart(@NotNull SandboxSession session, @Nullable SandboxConfig newConfig) {
+        final CompletableFuture<Boolean> result = new CompletableFuture<>();
+        if (this.disposing) {
+            result.complete(false);
+            return result;
+        }
+        this.services.background().execute(() -> {
+            try {
+                result.complete(restartInBackground(session, newConfig));
+            } catch (RuntimeException e) {
+                LOG.warn("Restarting a sandbox failed unexpectedly (instance " + session.snapshot().instanceId() + ")", e);
+                this.notifier.spawnFailed(Objects.requireNonNullElse(e.getMessage(), e.getClass().getSimpleName()));
+                result.complete(false);
+            } catch (Error e) {
+                result.completeExceptionally(e);
+                throw e;
+            }
+        });
+        return result;
+    }
+
+    /**
      * Returns the sessions with a tab, in start order.
      */
     @NotNull
@@ -256,14 +289,8 @@ public final class SandboxSessionManager implements Disposable {
             // Hole prints the reason (e.g. no container engine) in the tab itself
             LOG.info("Starting a sandbox although the Hole probe failed: " + hole.message());
         }
-        final Map<String, String> env = this.environment.get();
         final String instanceId = InstanceIdGenerator.isValid(preferredId) ? preferredId : this.services.instanceIds().get();
-        final Path projectDirectory = new HoleSettingsLocator(() -> env)
-            .resolveProjectDirectory(this.projectRoot, config.projectPath())
-            .orElse(this.projectRoot);
-        final SandboxSession.Launch launch = new SandboxSession.Launch(
-            config, debug, hole.executable(), this.projectRoot, projectDirectory, env
-        );
+        final SandboxSession.Launch launch = launch(config, debug, hole.executable());
         final SandboxSession session = new SandboxSession(launch, instanceId, this.services, this.sessionListener);
         try {
             session.start();
@@ -280,6 +307,32 @@ public final class SandboxSessionManager implements Disposable {
         }
         this.ui.execute(() -> added(session));
         return session;
+    }
+
+    private boolean restartInBackground(@NotNull SandboxSession session, @Nullable SandboxConfig newConfig) {
+        if (this.disposing || session.snapshot().state() != SessionState.RUNNING) {
+            return false;
+        }
+        final HoleCapability hole = this.capability.get();
+        if (!hole.canStart() || hole.executable() == null) {
+            this.notifier.cannotStart(hole);
+            return false;
+        }
+        final SandboxSession.Launch current = session.launch();
+        final SandboxConfig config = newConfig != null ? newConfig : current.config();
+        return session.restart(launch(config, current.debug(), hole.executable()));
+    }
+
+    /**
+     * Builds what a session starts, with the current environment of the user's shell.
+     */
+    @NotNull
+    private SandboxSession.Launch launch(@NotNull SandboxConfig config, boolean debug, @NotNull Path executable) {
+        final Map<String, String> env = this.environment.get();
+        final Path projectDirectory = new HoleSettingsLocator(() -> env)
+            .resolveProjectDirectory(this.projectRoot, config.projectPath())
+            .orElse(this.projectRoot);
+        return new SandboxSession.Launch(config, debug, executable, this.projectRoot, projectDirectory, env);
     }
 
     private void added(@NotNull SandboxSession session) {
@@ -358,6 +411,11 @@ public final class SandboxSessionManager implements Disposable {
                     SandboxSessionManager.this.view.processRestarted(session);
                 }
             });
+        }
+
+        @Override
+        public void restartFailed(@NotNull SandboxSession session, @NotNull String reason) {
+            SandboxSessionManager.this.notifier.restartFailed(reason);
         }
     }
 }

@@ -34,7 +34,14 @@ agents that never set one, the project folder name is shown instead (plain text)
   - *New Sandbox…*,
   - *Edit Favourites…*.
 
-When no sandbox is running, the tool window shows an empty state with a *New Sandbox…* link.
+When no sandbox is running, the tool window shows an empty state: *No sandboxes are running*, a *New Sandbox…* link
+and the favourites grouped into *This project* and *All projects* (grey headers), each with its command in grey
+(`claude ./worktrees/feature`). Clicking a favourite starts it in agent mode; Debug Shell stays in the dropdown (the
+empty state cannot see Shift). At most **5** favourites are listed (project ones first), because a bottom tool window
+is short and the empty state does not scroll; when there are more, a *More…* link opens the favourites dropdown. The
+last line is *Edit Favourites…*. When Hole cannot start (missing or too old), the favourites are grey text and the
+reason follows them. Without favourites only *New Sandbox…* and *Edit Favourites…* are shown. The empty state follows
+saved favourites at once.
 
 ### Sandbox tab body
 
@@ -43,15 +50,59 @@ The tab body has a small header and, below it, the interactive terminal with the
 The **header** shows:
 
 - instance ID,
-- whether the Docker-in-Docker sidecar is enabled,
-- which settings files are used (same labels as `hole list`, e.g. `global(~/.hole/settings.json)+project`),
+- whether the Docker-in-Docker sidecar is enabled; while the sandbox runs, clicking the pill restarts it with
+  Docker-in-Docker toggled (see *Restart* below; the favourite it was started from is not changed),
+- the **Settings** field with two links, **Global** and **Project**: a link of a file used by this sandbox is shown
+  normally, a file not used (missing, or created after the start) is dimmed with the tooltip *Not used by this
+  sandbox; restart to apply after creating it*. The field's tooltip has the `hole list` labels
+  (e.g. `global(~/.hole/settings.json)+project`, overrides as `project(<path>)`). A click runs
+  `hole settings get global` / `hole settings get project <sandbox project path>` in the background and opens the file
+  in an IDE editor; when Hole reports that it does not exist, the plugin asks *The project settings file … does not
+  exist. Create it from Hole's template?* and runs `hole settings create …` (a file created meanwhile is simply
+  opened). Other failures (e.g. a relative `HOLE_SETTINGS_FILE`) end in a balloon with Hole's message. A worktree
+  sandbox opens its worktree's file,
 - the absolute project path,
-- uptime,
-- a *Debug Shell* pill for debug runs.
+- a *Debug Shell* pill for debug runs,
+- a small toolbar at the right end with **Restart** and **Network…**, both enabled only while the sandbox runs.
 
 The instance ID is known from the start (the plugin chooses it). The other fields are rendered lazily, with skeleton
-placeholders until Hole reports the instance. While the sandbox is stopping, the header shows *Stopping for N s*, and
-after 30 seconds it offers a **Force Stop** button.
+placeholders until Hole reports the instance. While the sandbox is stopping, the header shows *Stopping for N s*
+(*Restarting for N s* during a restart), and after 30 seconds it offers a **Force Stop** button.
+
+**Restart** (toolbar, or the Docker pill) always asks first: *Restart 'claude' in 'my-project'? The agent session ends
+and a new sandbox starts in this tab.* (with *with Docker-in-Docker enabled/disabled* for the pill), plus *N network
+entries added with 'hole modify' will be lost.* when `hole list` reports runtime entries. There is no *Do not ask
+again*. See [Sandbox lifecycle](#sandbox-lifecycle) for what a restart does.
+
+### Runtime network
+
+**Network…** opens a non-modal window for the running sandbox, like Hole's `hole modify` TUI, titled
+`Network · my-project · claude (k3x9a2)`. One window per sandbox (pressing *Network…* again brings it to the front);
+it closes when the sandbox restarts, stops or its tab closes. Three tabs:
+
+1. **Allowed** (`network.allow`): table *Entry* | *Source* (`settings`, `agent:<name>`, `runtime`) with **Add…**,
+   **Remove** (only `runtime` entries; selecting another shows *From settings — edit the settings file and restart*)
+   and **Refresh**. In a sandbox started with `-u` it shows *Unrestricted network: everything is already allowed* and
+   is read-only.
+2. **Host gateway** (`network.hostGatewayDomains`): the same table and actions; it stays editable with `-u`, while
+   the *Blocked* tab then shows nothing (nothing is blocked).
+3. **Blocked** (`network.allow list-blocked`): *Name* | *Count* | *Last seen* (local time), newest first. **Allow**
+   (`name:443,80`), **Allow on Ports…** (`name:`) and **Allow `*.parent`** (`*.<parent>:443,80`, only when the parent
+   has at least two dots, like Hole's `WildcardFor`) open the Add input prefilled, so the entry is seen before it is
+   applied; also in the context menu, double-click = Allow. After an add the list is reloaded (allowed names
+   disappear).
+
+The Add input takes one or more entries separated by spaces, with Hole's syntax hint (`example.com`,
+`*.example.com:443,80`, `db.example.com:5432`).
+
+Unlike the TUI, **every confirmed add or remove is applied at once** (one `hole modify … add|remove v1 v2…` call, one
+gateway apply); Hole cannot apply additions and removals together, so staging would not be atomic. The entry lists
+load on open and after each change, the blocked list on open, on *Refresh* and after each add — never on a timer,
+because `list-blocked` reads the gateway's whole log. All calls run in the background (30 s timeout) and disable the
+actions while they run. Errors by Hole's exit code: 2 → Hole's message under the input, which stays open (e.g. a host
+gateway conflict); 3 → *The sandbox is not running or still starting* (for a sandbox started by an older Hole with a
+*Restart Sandbox* button); 4 → *The gateway did not apply the change; the previous allow list is still in force* with
+Hole's message; anything else → Hole's message.
 
 Hole's own interactive prompts (e.g. `Update agents now? [Y/n/s]`, project trust) are left in the terminal for the
 user to answer. The plugin does not intercept them.
@@ -97,17 +148,22 @@ Global favourites typically use `.` as the project path, so they work in any pro
 
 ### Hole settings files
 
-Both dialogs show links to the settings files. The plugin does not compute their paths itself; it asks Hole with
+Both dialogs (and the sandbox header, see above) show links to the settings files. The plugin does not compute their
+paths itself; it asks Hole with
 `hole settings get global` and `hole settings get project <resolved path>`, which resolve them exactly like
 `hole start` (including the `HOLE_SETTINGS_FILE` / `HOLE_PROJECT_SETTINGS_FILE` overrides of the user's shell
 environment). The calls run in the background, debounced, and again whenever the project path changes.
 
-- The **global** settings file: when it exists, its path with the actions below. When it does not exist, its path is
-  shown dimmed with *(not created)* and without actions; the plugin never creates it. When Hole cannot tell (e.g.
-  Hole is not installed), the row is hidden.
-- The **project** settings file of the selected project path: shown only if the file exists.
+- The **global** settings file and the **project** settings file of the selected (resolved) project path: when the
+  file exists, its path with *Open* and the icon below. When it does not exist, its path is shown dimmed with
+  *(not created)* and a **Create** link. When Hole cannot tell (e.g. Hole is not installed, the project path is not a
+  directory, a rejected override), the row is hidden.
 
 **Open** opens the file in an IDE editor tab; an icon next to it opens the file in the system's default editor.
+**Create** asks for confirmation and runs `hole settings create global` / `hole settings create project <path>` in the
+background (Hole writes its template with `$schema`, so the IDE validates the JSON); the dialog stays open and re-runs
+its checks, so the row switches to *Open* and agent / profile suggestions are refreshed. The plugin never passes
+`--overwrite` / `--append`.
 The plugin does **not** provide a GUI for the settings content, because Hole's settings keys change often.
 
 ## How it will work
@@ -124,8 +180,7 @@ therefore the signal that the sandbox is gone.
 
 The plugin generates the 6-character instance ID (`[a-z0-9]`) itself and passes it with `--instance-id`. The header
 metadata and the lifecycle status are read by polling `hole list --json --no-gc` (one unfiltered call for all
-sandboxes, fanned out by instance ID; every second while starting, less often afterwards; uptime is computed from
-`startedAt`). `--no-gc` keeps each poll from running Hole's cleanup of dead sandboxes, which costs several container
+sandboxes, fanned out by instance ID; every second while starting, less often afterwards). `--no-gc` keeps each poll from running Hole's cleanup of dead sandboxes, which costs several container
 engine calls; Hole still cleans up on every `hole start`. These options are the Hole change described in
 `documentation/hole-assignment-instance-id-and-list-json.md`, released in **Hole 2.6.0**.
 
@@ -152,5 +207,12 @@ writes Ctrl-C (`0x03`) to the pty.
   tab shows the stopping state, and when the process exits the tab closes and the previously selected tab is selected.
   After 30 seconds the header offers *Force Stop*, which sends SIGKILL to the process group; Hole's watchdog survives
   it and finishes the teardown in the background.
+- **Restart** (header toolbar or Docker pill, only while running): SIGINT to the process group like a close; once
+  the process has exited, `hole start` runs again **in the same tab** with a **new instance ID** (after Force Stop or
+  Hole's relay timeout the old one is still taken), the same mode (agent / debug shell), the possibly changed config,
+  and a fresh probe of Hole (executable and environment may have changed after `hole update`). The terminal widget is
+  replaced, so the old output is gone. Force Stop during a restart only kills the old process; the restart goes on. A
+  close request during a pending restart wins and closes the tab. When the new process cannot be started, the tab
+  shows *Exited with code N* and a notification tells the user that the old sandbox is gone.
 - **IDE is closed**: the plugin sends SIGINT to the process group of every running sandbox and does **not** wait for
   shutdown, because no tab needs to be selected afterwards.

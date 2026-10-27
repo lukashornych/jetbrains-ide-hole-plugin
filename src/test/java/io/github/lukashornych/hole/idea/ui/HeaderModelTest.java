@@ -6,8 +6,8 @@ import io.github.lukashornych.hole.idea.session.SandboxSession;
 import io.github.lukashornych.hole.idea.session.SessionState;
 import org.junit.jupiter.api.Test;
 
-import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -34,15 +34,31 @@ class HeaderModelTest {
     }
 
     @Test
-    void metadataFieldsAndLocalUptime() {
+    void metadataFields() {
         final HeaderModel model = HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, NOW);
         assertFalse(model.pending());
         assertTrue(model.metadata());
         assertTrue(model.docker());
-        assertEquals("global(~/.hole/settings.json)+project", model.settings());
+        assertEquals("global(~/.hole/settings.json)+project", model.settingsTooltip());
+        assertTrue(model.globalUsed());
+        assertTrue(model.projectUsed());
         assertEquals("/work/acme-cms", model.project());
-        assertEquals("12m 34s", model.uptime(), "computed from startedAt, not from uptimeSeconds");
         assertFalse(model.debug());
+    }
+
+    @Test
+    void usedSettingsFilesAreMatchedByLabelPrefix() {
+        final HeaderModel globalOnly = model(List.of("global(~/.hole/settings.json)"));
+        assertTrue(globalOnly.globalUsed());
+        assertFalse(globalOnly.projectUsed(), "the project file is not used: dimmed");
+        final HeaderModel overrides = model(List.of("global(/etc/hole/global.json)", "project(~/elsewhere/project.json)"));
+        assertTrue(overrides.globalUsed());
+        assertTrue(overrides.projectUsed());
+        assertEquals("global(/etc/hole/global.json)+project(~/elsewhere/project.json)", overrides.settingsTooltip());
+        final HeaderModel defaults = model(List.of("defaults"));
+        assertFalse(defaults.globalUsed());
+        assertFalse(defaults.projectUsed());
+        assertEquals(HeaderModel.NO_SETTINGS, model(List.of()).settingsTooltip());
     }
 
     @Test
@@ -53,6 +69,40 @@ class HeaderModelTest {
         final HeaderModel late = HeaderModel.of(snapshot(SessionState.STOPPING, INFO, null, NOW.minusSeconds(34)), false, NOW);
         assertEquals("Stopping for 34 s", late.stopping());
         assertTrue(late.forceStop());
+        assertTrue(late.forceStopCloses(), "Force Stop of a close request closes the tab");
+    }
+
+    @Test
+    void restartShowsRestartingTimerAndForceStopKeepsTheTab() {
+        final HeaderModel early = HeaderModel.of(restarting(NOW.minusSeconds(5)), false, NOW);
+        assertEquals("Restarting for 5 s", early.stopping());
+        assertFalse(early.forceStop());
+        assertNull(early.exited(), "no exit code during a restart");
+        final HeaderModel late = HeaderModel.of(restarting(NOW.minusSeconds(31)), false, NOW);
+        assertEquals("Restarting for 31 s", late.stopping());
+        assertTrue(late.forceStop());
+        assertFalse(late.forceStopCloses(), "no \"Closes the tab\" hint: the restart goes on after Force Stop");
+    }
+
+    @Test
+    void restartAndDockerToggleOnlyWhileRunning() {
+        final HeaderModel running = HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, NOW);
+        assertTrue(running.restart());
+        assertTrue(running.dockerToggle());
+        assertTrue(running.network());
+        for (SandboxSession.Snapshot other : java.util.List.of(
+            snapshot(SessionState.STARTING, null, null, null),
+            snapshot(SessionState.STARTING, INFO, null, null),
+            snapshot(SessionState.STOPPING, INFO, null, NOW),
+            restarting(NOW),
+            snapshot(SessionState.EXITED, INFO, 1, null),
+            snapshot(SessionState.CLOSED, INFO, 0, null)
+        )) {
+            final HeaderModel model = HeaderModel.of(other, false, NOW);
+            assertFalse(model.restart(), other.toString());
+            assertFalse(model.dockerToggle(), other.toString());
+            assertFalse(model.network(), other.toString());
+        }
     }
 
     @Test
@@ -77,23 +127,27 @@ class HeaderModelTest {
     }
 
     @Test
-    void modelOfARunningSandboxChangesWithTheUptimeOnly() {
-        final HeaderModel model = HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, NOW);
-        assertEquals(model, HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, NOW.plusMillis(400)));
-        final HeaderModel later = HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, NOW.plusSeconds(1));
-        assertFalse(model.equals(later));
-        assertEquals("12m 35s", later.uptime());
-    }
-
-    @Test
-    void durationFormat() {
-        assertEquals("0s", HeaderModel.formatDuration(Duration.ofSeconds(-3)));
-        assertEquals("45s", HeaderModel.formatDuration(Duration.ofSeconds(45)));
-        assertEquals("1m 00s", HeaderModel.formatDuration(Duration.ofSeconds(60)));
-        assertEquals("3h 07m", HeaderModel.formatDuration(Duration.ofMinutes(187).plusSeconds(59)));
+    void modelOfARunningSandboxDoesNotChangeWithTime() {
+        // no uptime any more: the 1 s timer re-renders a running sandbox only when something else changed
+        assertEquals(
+            HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, NOW),
+            HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, NOW.plusSeconds(90))
+        );
     }
 
     private static SandboxSession.Snapshot snapshot(SessionState state, InstanceInfo info, Integer exitCode, Instant stoppingSince) {
-        return new SandboxSession.Snapshot(state, "r8tq2c", info, exitCode, stoppingSince, "", false);
+        return new SandboxSession.Snapshot(state, "r8tq2c", info, exitCode, stoppingSince, "", false, false);
+    }
+
+    private static HeaderModel model(List<String> settings) {
+        final String labels = settings.stream().map(label -> "\"" + label + "\"").collect(java.util.stream.Collectors.joining(", "));
+        final InstanceInfo info = HoleListParser.parse(
+            "[{\"instanceId\": \"r8tq2c\", \"status\": \"running\", \"projectPath\": \"/work/acme-cms\", \"settings\": [" + labels + "]}]"
+        ).get(0);
+        return HeaderModel.of(snapshot(SessionState.RUNNING, info, null, null), false, NOW);
+    }
+
+    private static SandboxSession.Snapshot restarting(Instant stoppingSince) {
+        return new SandboxSession.Snapshot(SessionState.STOPPING, "r8tq2c", INFO, null, stoppingSince, "", false, true);
     }
 }

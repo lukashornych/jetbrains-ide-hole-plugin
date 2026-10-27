@@ -18,7 +18,7 @@ Inside a Hole sandbox, the hosts listed in `.hole/settings.json` must be allowed
 ## Constraints
 
 - Java 21 toolchain, Lombok, constructor injection; target IntelliJ 2025.2+ (`sinceBuild = 252`, no upper bound).
-- Supported Hole: 2.6.0 or newer (`hole list --json`, `--instance-id`, `hole settings get`).
+- Supported Hole: 2.6.0 or newer (`hole list --json`, `--instance-id`, `hole settings get|create`, `hole modify`).
 - No internal, experimental or deprecated platform APIs; no new dependencies.
 - Code instrumentation is on: `@NotNull` parameters are checked at runtime, so null handling of persisted state
   belongs in the `storage` beans, not in model records.
@@ -28,12 +28,14 @@ Inside a Hole sandbox, the hosts listed in `.hole/settings.json` must be allowed
 
 ## Layout (`io.github.lukashornych.hole.idea`)
 
-- `hole` — Hole CLI clients (`version`, `list --json`, `settings get`), command builder, metadata poller.
+- `hole` — Hole CLI clients (`version`, `list --json`, `settings get|create`, `modify`), settings file resolver,
+  command builder, metadata poller.
 - `process` — plain CLI runner and executable lookup.
 - `session` — sandbox lifecycle: PTY process (pty4j), signals to the process group, terminal connector.
 - `storage` — persisted settings and favourites (application and project level).
-- `ui` — tool window, sandbox tabs, dialogs, settings page.
+- `ui` — tool window (incl. the favourites start page), sandbox tabs, dialogs, settings page; `ui/network` — the
+  runtime network window.
 - `model`, `git` — value records and `git worktree list` parsing.
 
-Tests use `src/test/resources/fake-hole/hole`, a shell script that mimics Hole 2.6.0 (switches documented in its
-header). Prefer integration tests with it over mocks.
+Tests use `src/test/resources/fake-hole/hole`, a shell script that mimics Hole 2.6.0 including `settings create` and
+`modify` (switches documented in its header). Prefer integration tests with it over mocks.

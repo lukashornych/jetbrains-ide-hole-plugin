@@ -1,0 +1,10 @@
+{
+  "instanceId": "k3x9a2",
+  "entries": [
+    {"entry": "api.example.com:443", "source": "settings"},
+    {"entry": "registry.example.org:443,80", "source": "agent:claude"},
+    {"entry": "*.cdn.example.net:443", "source": "runtime", "addedAt": "2026-10-21T10:20:00Z"},
+    {"source": "runtime"}
+  ],
+  "unknownTopLevel": {"nested": [1, 2]}
+}

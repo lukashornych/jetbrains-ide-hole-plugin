@@ -157,6 +157,8 @@ final class SandboxForm implements Disposable {
             .addComponentToRightColumn(hint("<html>Passed after <code>--</code>. A debug start opens a shell instead of the agent, so it leaves these out.</html>"))
             .addComponent(new TitledSeparator("Command"))
             .addComponent(previewPanel)
+            // takes the extra height of an enlarged dialog, so the form stays at the top instead of centred
+            .addComponentFillVertically(new JPanel(), 0)
             .getPanel();
         this.panel.setBorder(JBUI.Borders.empty(4));
 
@@ -336,7 +338,13 @@ final class SandboxForm implements Disposable {
 
     private void applyChecks(@NotNull FormChecks result) {
         this.checks = result;
-        this.links.show(result.globalSettings(), result.globalSettingsExists(), result.projectSettings());
+        this.links.show(
+            result.globalSettings() == null ? null
+                : new HoleSettingsClient.SettingsFile(result.globalSettings(), result.globalSettingsExists()),
+            result.projectSettings(),
+            result.projectDirectory(),
+            this::scheduleChecks
+        );
         this.loading = true;
         try {
             setItems(this.agent, result.agents());

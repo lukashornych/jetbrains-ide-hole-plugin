@@ -67,7 +67,8 @@ public final class GlobalFavouritesService implements PersistentStateComponent<F
     }
 
     /**
-     * Stores favourites edited in one list: each goes to the service of its scope, in the given order.
+     * Stores favourites edited in one list: each goes to the service of its scope, in the given order. Publishes
+     * {@link FavouritesListener#TOPIC} afterwards.
      */
     public static void saveAll(@NotNull com.intellij.openapi.project.Project project, @NotNull List<Favourite> favourites) {
         ProjectFavouritesService.getInstance(project).setFavourites(
@@ -76,5 +77,6 @@ public final class GlobalFavouritesService implements PersistentStateComponent<F
         getInstance().setFavourites(
             favourites.stream().filter(favourite -> favourite.scope() == FavouriteScope.GLOBAL).toList()
         );
+        ApplicationManager.getApplication().getMessageBus().syncPublisher(FavouritesListener.TOPIC).favouritesChanged();
     }
 }

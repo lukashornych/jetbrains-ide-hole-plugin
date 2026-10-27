@@ -87,6 +87,11 @@ public class HoleToolWindowViewTest extends BasePlatformTestCase {
                 public void spawnFailed(@NotNull String reason) {
                     fail("spawn failed: " + reason);
                 }
+
+                @Override
+                public void restartFailed(@NotNull String reason) {
+                    fail("restart failed: " + reason);
+                }
             }
         );
         this.contentManager = ContentFactory.getInstance().createContentManager(true, getProject());
@@ -157,6 +162,21 @@ public class HoleToolWindowViewTest extends BasePlatformTestCase {
         assertEquals(0, this.contentManager.getContentCount());
         assertTrue(this.manager.sessions().isEmpty());
         assertEquals(1, this.tabs.get(a).disposed);
+    }
+
+    public void testTabTitleFollowsTheRestartedConfig() {
+        final SandboxSession a = start("aaaaaa");
+        waitOnEdt(() -> a.snapshot().state() == SessionState.RUNNING, "running");
+        final Content content = content(a);
+        assertEquals("claude · demo", content.getDisplayName());
+
+        final CompletableFuture<Boolean> restart = this.manager.restart(a, SandboxConfig.defaults().withProfile("research"));
+        waitOnEdt(restart::isDone, "restart requested");
+        assertTrue(restart.join());
+        waitOnEdt(() -> "claude:research · demo".equals(content.getDisplayName()), "title of the new config");
+        waitOnEdt(() -> a.snapshot().state() == SessionState.RUNNING, "new sandbox runs");
+        assertEquals("same tab", 1, this.contentManager.getContentCount());
+        assertSame(content, content(a));
     }
 
     @NotNull

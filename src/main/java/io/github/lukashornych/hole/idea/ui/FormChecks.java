@@ -27,7 +27,8 @@ import java.util.Set;
  * @param globalSettings         path of the global settings file, {@code null} when Hole could not tell (e.g. Hole
  *                               not found)
  * @param globalSettingsExists   the global settings file exists
- * @param projectSettings        the project settings file, {@code null} when it does not exist
+ * @param projectSettings        the project settings file of the resolved project directory (existing or not),
+ *                               {@code null} when Hole could not tell or the project path is not a directory
  * @param missingLibraries       library paths (as typed) that do not exist
  * @param agents                 agent suggestions
  * @param profiles               profile suggestions
@@ -38,7 +39,7 @@ public record FormChecks(
     boolean projectDirectoryExists,
     @Nullable Path globalSettings,
     boolean globalSettingsExists,
-    @Nullable Path projectSettings,
+    @Nullable HoleSettingsClient.SettingsFile projectSettings,
     @NotNull Set<String> missingLibraries,
     @NotNull List<String> agents,
     @NotNull List<String> profiles
@@ -70,10 +71,10 @@ public record FormChecks(
         // suggestions fall back to the IDE project root while the typed path is not a directory
         final Path settingsBase = exists ? directory.get() : projectRoot;
         final Optional<HoleSettingsClient.SettingsFile> global = settings == null ? Optional.empty() : settings.global();
-        final Optional<Path> project = settings == null ? Optional.empty() : settings.existingProjectFile(settingsBase);
+        final Optional<HoleSettingsClient.SettingsFile> project = settings == null ? Optional.empty() : settings.project(settingsBase);
         final List<Path> existingFiles = new ArrayList<>(2);
         global.filter(HoleSettingsClient.SettingsFile::exists).ifPresent(file -> existingFiles.add(file.path()));
-        project.ifPresent(existingFiles::add);
+        project.filter(HoleSettingsClient.SettingsFile::exists).ifPresent(file -> existingFiles.add(file.path()));
         final Set<String> missing = new LinkedHashSet<>();
         for (Library library : config.libraries()) {
             if (library.isBlank()) {

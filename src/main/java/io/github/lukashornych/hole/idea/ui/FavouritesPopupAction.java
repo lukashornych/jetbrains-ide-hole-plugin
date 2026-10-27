@@ -18,6 +18,7 @@ import javax.swing.SwingConstants;
 import java.awt.Component;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.util.function.Consumer;
 
 /**
  * The arrow next to {@code +}: favourites of this project and of all projects (click starts, Shift+click or
@@ -38,6 +39,23 @@ final class FavouritesPopupAction extends DumbAwareAction {
         if (project == null) {
             return;
         }
+        final Component component = e.getInputEvent() == null ? null : e.getInputEvent().getComponent();
+        show(project, popup -> {
+            if (component != null) {
+                popup.showUnderneathOf(component);
+            } else {
+                popup.showInFocusCenter();
+            }
+        });
+    }
+
+    /**
+     * Shows the favourites dropdown (also from <i>More…</i> on the empty start page).
+     *
+     * @param project   the IDE project
+     * @param placement shows the popup, e.g. underneath the clicked component
+     */
+    static void show(@NotNull Project project, @NotNull Consumer<ListPopup> placement) {
         // non-blocking: the start probes again and reports a missing or old Hole itself
         final HoleCapability capability = HoleExecutable.getInstance().lastCapability();
         final FavouritesPopupStep step = new FavouritesPopupStep(project, GlobalFavouritesService.all(project), capability);
@@ -52,12 +70,7 @@ final class FavouritesPopupAction extends DumbAwareAction {
             KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK),
             JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT
         );
-        final Component component = e.getInputEvent() == null ? null : e.getInputEvent().getComponent();
-        if (component != null) {
-            popup.showUnderneathOf(component);
-        } else {
-            popup.showInFocusCenter();
-        }
+        placement.accept(popup);
     }
 
     @Override

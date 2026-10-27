@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -34,6 +35,7 @@ import static io.github.lukashornych.hole.idea.testutil.Waiting.waitUntil;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -372,6 +374,211 @@ class SandboxSessionTest {
         assertTrue(launch.describe().contains("agent claude"));
     }
 
+    @Test
+    void restartOfARunningSessionStartsAgainInTheSameSessionWithANewInstanceId() {
+        this.nextIds.add("bbbbbb");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+        session.setAgentTitle("✳ Old task");
+        final com.pty4j.PtyProcess old = session.process();
+
+        assertTrue(session.restart(launch(SandboxConfig.defaults(), this.hole.environment())));
+        final SandboxSession.Snapshot restarting = session.snapshot();
+        assertEquals(SessionState.STOPPING, restarting.state());
+        assertTrue(restarting.restartPending());
+        assertFalse(restarting.closeRequested(), "a restart is not a close");
+
+        waitUntil(() -> recorder.restarts.get() == 1, "process restarted");
+        assertEquals(130, old.exitValue(), "the old Hole got SIGINT");
+        assertEquals("bbbbbb", session.snapshot().instanceId());
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "new sandbox runs");
+        final SandboxSession.Snapshot running = session.snapshot();
+        assertEquals("bbbbbb", running.info().instanceId());
+        assertFalse(running.restartPending());
+        assertNull(running.exitCode());
+        assertNull(running.stoppingSince());
+        assertEquals("", running.agentTitle(), "the old agent's title is gone");
+        assertEquals(List.of("start claude . --instance-id aaaaaa", "start claude . --instance-id bbbbbb"), startCalls());
+        assertFalse(recorder.states.contains(SessionState.EXITED), "no exit is shown: " + recorder.states);
+        assertFalse(recorder.states.contains(SessionState.CLOSED), "the tab does not close: " + recorder.states);
+    }
+
+    @Test
+    void restartWithDockerToggledPassesOrLeavesOutWithDocker() {
+        this.nextIds.add("bbbbbb");
+        this.nextIds.add("cccccc");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+        assertFalse(session.snapshot().info().docker());
+
+        assertTrue(session.restart(launch(SandboxConfig.defaults().withWithDocker(true), this.hole.environment())));
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING && "bbbbbb".equals(session.snapshot().instanceId()), "running with Docker");
+        assertTrue(session.snapshot().info().docker());
+        assertTrue(session.launch().config().withDocker(), "the launch is replaced");
+
+        assertTrue(session.restart(launch(SandboxConfig.defaults(), this.hole.environment())));
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING && "cccccc".equals(session.snapshot().instanceId()), "running without Docker");
+        final List<String> starts = startCalls();
+        assertEquals(3, starts.size(), starts.toString());
+        assertFalse(starts.get(0).contains("--with-docker"), starts.toString());
+        assertTrue(starts.get(1).contains("--with-docker") && starts.get(1).contains("--instance-id bbbbbb"), starts.toString());
+        assertFalse(starts.get(2).contains("--with-docker"), starts.toString());
+    }
+
+    @Test
+    void restartIsRefusedWhileStartingAndStopping() {
+        this.hole.environment().put("FAKE_HOLE_RUNNING_AFTER", "30");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().info() != null, "Hole lists the starting sandbox");
+
+        assertFalse(session.restart(launch(SandboxConfig.defaults(), this.hole.environment())), "STARTING");
+        assertEquals(SessionState.STARTING, session.snapshot().state());
+        assertFalse(session.snapshot().restartPending());
+        assertTrue(session.process().isAlive(), "no SIGINT");
+
+        session.requestClose();
+        assertFalse(session.restart(launch(SandboxConfig.defaults(), this.hole.environment())), "STOPPING");
+        assertFalse(session.snapshot().restartPending());
+        waitUntil(() -> session.snapshot().state() == SessionState.CLOSED, "closed");
+        assertFalse(session.restart(launch(SandboxConfig.defaults(), this.hole.environment())), "CLOSED");
+        assertEquals(0, recorder.restarts.get());
+        assertEquals(1, startCalls().size(), startCalls().toString());
+    }
+
+    @Test
+    void restartIsRefusedAfterTheExit() {
+        this.hole.environment().put("FAKE_HOLE_START_EXIT", "1");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+
+        assertFalse(session.restart(launch(SandboxConfig.defaults(), this.hole.environment())));
+        assertEquals(SessionState.EXITED, session.snapshot().state());
+        assertEquals(1, startCalls().size(), startCalls().toString());
+    }
+
+    @Test
+    void closeRequestedDuringAPendingRestartClosesTheTab() {
+        // the hanging Hole keeps the restart pending until the close request has come
+        this.hole.environment().put("FAKE_HOLE_HANG", "1");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+        assertTrue(session.restart(launch(SandboxConfig.defaults(), withoutKey(this.hole.environment(), "FAKE_HOLE_HANG"))));
+
+        session.requestClose();
+        assertTrue(session.snapshot().closeRequested());
+        assertFalse(session.snapshot().restartPending(), "the close wins");
+        session.forceStop();
+        waitUntil(() -> session.snapshot().state() == SessionState.CLOSED, "closed");
+        assertEquals(0, recorder.restarts.get());
+        assertEquals(1, startCalls().size(), startCalls().toString());
+    }
+
+    @Test
+    void restartSendsSigintToTheWholeProcessGroup() {
+        this.hole.environment().put("FAKE_HOLE_CHILD", "running");
+        this.nextIds.add("bbbbbb");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        final Path childPid = this.hole.stateDirectory().resolve("child.pid");
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING && Files.exists(childPid), "agent process runs");
+
+        assertTrue(session.restart(launch(SandboxConfig.defaults(), withoutKey(this.hole.environment(), "FAKE_HOLE_CHILD"))));
+        waitUntil(() -> recorder.restarts.get() == 1, "process restarted");
+        assertTrue(Files.exists(this.hole.stateDirectory().resolve("child.int")), "the agent process got SIGINT");
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "new sandbox runs");
+    }
+
+    @Test
+    void forceStopDuringARestartKillsTheOldProcessAndTheRestartGoesOn() {
+        this.hole.environment().put("FAKE_HOLE_HANG", "1");
+        this.nextIds.add("bbbbbb");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+        final com.pty4j.PtyProcess old = session.process();
+
+        assertTrue(session.restart(launch(SandboxConfig.defaults(), withoutKey(this.hole.environment(), "FAKE_HOLE_HANG"))));
+        this.clock.advance(SandboxSession.FORCE_STOP_AFTER);
+        assertTrue(session.canForceStop(this.clock.instant()), "the old Hole ignores SIGINT");
+        session.forceStop();
+        assertFalse(session.snapshot().closeRequested(), "Force Stop does not cancel the restart");
+
+        waitUntil(() -> recorder.restarts.get() == 1, "process restarted");
+        assertEquals(137, old.exitValue());
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "new sandbox runs");
+        assertEquals("bbbbbb", session.snapshot().instanceId());
+        assertFalse(recorder.states.contains(SessionState.CLOSED), recorder.states.toString());
+    }
+
+    @Test
+    void restartedProcessGetsItsOwnDuplicateIdRetryWithoutTheOutputWait() {
+        this.nextIds.add("aaaaab");
+        this.nextIds.add("bbbbbb");
+        this.nextIds.add("cccccc");
+        this.hole.putInstance("aaaaaa", "running");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        // the first process already used its retry
+        waitUntil(() -> recorder.restarts.get() == 1 && session.snapshot().state() == SessionState.RUNNING, "retry runs");
+        assertEquals("aaaaab", session.snapshot().instanceId());
+        this.hole.putLeftovers("bbbbbb");
+        final com.pty4j.PtyProcess old = session.process();
+
+        assertTrue(session.restart(launch(SandboxConfig.defaults(), this.hole.environment())));
+        waitUntil(() -> !old.isAlive(), "the old Hole exits after SIGINT");
+        // measured from the exit: the teardown time of the old Hole does not count
+        final long begin = System.nanoTime();
+        waitUntil(() -> startCalls().stream().anyMatch(call -> call.endsWith("--instance-id bbbbbb")), () -> startCalls().toString());
+        assertTrue(Duration.ofNanos(System.nanoTime() - begin).compareTo(SandboxSession.OUTPUT_DRAIN_TIMEOUT) < 0,
+            "no output wait before the restart");
+
+        waitUntil(() -> recorder.restarts.get() == 3, "leftovers of bbbbbb are retried");
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "new sandbox runs");
+        assertEquals("cccccc", session.snapshot().instanceId());
+    }
+
+    @Test
+    void restartWhoseNewProcessCannotBeSpawnedEndsExitedAndIsReported() throws IOException {
+        // regression guard: the old retry path left the state to its caller; a restart must end visibly
+        this.nextIds.add("bbbbbb");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+        final Path broken = Files.createDirectories(this.temp.resolve("not-a-binary"));
+        final SandboxSession.Launch next = new SandboxSession.Launch(
+            SandboxConfig.defaults(), false, broken, this.project, this.project, this.hole.environment()
+        );
+
+        assertTrue(session.restart(next));
+        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+        assertEquals(130, session.snapshot().exitCode(), "the old exit code is shown");
+        assertFalse(session.snapshot().restartPending());
+        assertEquals(1, recorder.restartFailures.size(), recorder.restartFailures.toString());
+        assertEquals(0, recorder.restarts.get());
+    }
+
+    @NotNull
+    private SandboxSession.Launch launch(@NotNull SandboxConfig config, @NotNull Map<String, String> environment) {
+        return new SandboxSession.Launch(config, false, this.hole.executable(), this.project, this.project, environment);
+    }
+
+    @NotNull
+    private static Map<String, String> withoutKey(@NotNull Map<String, String> environment, @NotNull String key) {
+        final Map<String, String> copy = new HashMap<>(environment);
+        copy.remove(key);
+        return copy;
+    }
+
+    @NotNull
+    private List<String> startCalls() {
+        return this.hole.calls().stream().filter(call -> call.startsWith("start ")).toList();
+    }
+
     @NotNull
     private SandboxSession start(@NotNull SandboxConfig config, boolean debug, @NotNull String id, @NotNull Recorder recorder) {
         return start(config, debug, id, recorder, this.background);
@@ -420,12 +627,20 @@ class SandboxSessionTest {
     private static final class Recorder implements SandboxSession.Listener {
         final AtomicInteger changes = new AtomicInteger();
         final AtomicInteger restarts = new AtomicInteger();
+        final List<SessionState> states = new CopyOnWriteArrayList<>();
+        final List<String> restartFailures = new CopyOnWriteArrayList<>();
         volatile SandboxSession session;
         volatile TerminalDrain drain;
 
         @Override
         public void sessionChanged(@NotNull SandboxSession session) {
             this.changes.incrementAndGet();
+            this.states.add(session.snapshot().state());
+        }
+
+        @Override
+        public void restartFailed(@NotNull SandboxSession session, @NotNull String reason) {
+            this.restartFailures.add(reason);
         }
 
         @Override

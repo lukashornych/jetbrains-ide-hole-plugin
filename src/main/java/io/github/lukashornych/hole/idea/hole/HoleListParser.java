@@ -80,7 +80,8 @@ public final class HoleListParser {
             strings(object, "settingsFiles"),
             flags(object),
             number(object, "pid"),
-            string(object, "version")
+            string(object, "version"),
+            number(object, "runtimeEntryCount")
         );
     }
 
@@ -101,7 +102,7 @@ public final class HoleListParser {
     }
 
     @NotNull
-    private static String string(@NotNull JsonObject object, @NotNull String name) {
+    static String string(@NotNull JsonObject object, @NotNull String name) {
         final JsonElement value = object.get(name);
         if (value == null || !value.isJsonPrimitive()) {
             return "";
@@ -109,7 +110,7 @@ public final class HoleListParser {
         return value.getAsString();
     }
 
-    private static long number(@NotNull JsonObject object, @NotNull String name) {
+    static long number(@NotNull JsonObject object, @NotNull String name) {
         final JsonElement value = object.get(name);
         if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) {
             return 0L;
@@ -138,7 +139,7 @@ public final class HoleListParser {
     }
 
     @Nullable
-    private static OffsetDateTime dateTime(@NotNull JsonObject object, @NotNull String name) {
+    static OffsetDateTime dateTime(@NotNull JsonObject object, @NotNull String name) {
         final String value = string(object, name);
         if (value.isEmpty()) {
             return null;

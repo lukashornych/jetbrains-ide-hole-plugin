@@ -55,6 +55,20 @@ public class FavouritesPersistenceTest extends BasePlatformTestCase {
         }
     }
 
+    public void testSaveAllPublishesTheChange() {
+        final java.util.concurrent.atomic.AtomicInteger changes = new java.util.concurrent.atomic.AtomicInteger();
+        com.intellij.openapi.application.ApplicationManager.getApplication().getMessageBus().connect(getTestRootDisposable())
+            .subscribe(FavouritesListener.TOPIC, (FavouritesListener) changes::incrementAndGet);
+        try {
+            GlobalFavouritesService.saveAll(getProject(), List.of(FULL));
+            assertEquals("also when only project favourites changed", 1, changes.get());
+            GlobalFavouritesService.saveAll(getProject(), List.of(FULL, GLOBAL));
+            assertEquals(2, changes.get());
+        } finally {
+            GlobalFavouritesService.saveAll(getProject(), List.of());
+        }
+    }
+
     public void testHandEditedNullsBecomeDefaults() {
         final FavouriteBean bean = new FavouriteBean();
         bean.setName(null);

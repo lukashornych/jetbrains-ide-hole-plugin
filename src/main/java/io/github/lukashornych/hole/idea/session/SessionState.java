@@ -9,6 +9,7 @@ package io.github.lukashornych.hole.idea.session;
  * process exit: stop requested by the plugin or exit code 0 --> CLOSED (the tab is removed)
  *               otherwise                                    --> EXITED (the tab stays with "Exited with code N")
  * EXITED --(Close)--> CLOSED
+ * RUNNING --(restart: SIGINT)--> STOPPING --(process exit, new process)--> STARTING (same tab, new instance ID)
  * </pre>
  */
 public enum SessionState {

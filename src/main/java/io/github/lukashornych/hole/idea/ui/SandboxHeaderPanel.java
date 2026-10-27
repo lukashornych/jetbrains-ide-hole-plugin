@@ -1,27 +1,45 @@
 package io.github.lukashornych.hole.idea.ui;
 
+import com.intellij.icons.AllIcons;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.ActionToolbar;
+import com.intellij.openapi.actionSystem.ActionUpdateThread;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.ui.JBColor;
+import com.intellij.ui.components.ActionLink;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.ui.JBFont;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.WrapLayout;
+import io.github.lukashornych.hole.idea.hole.HoleSettingsClient;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
+import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.util.function.Consumer;
 
 /**
- * The small header above a sandbox terminal: instance ID, Debug Shell pill, Docker, settings, project path and
- * uptime; the stopping timer with Force Stop; or "Exited with code N" with Close. Fields Hole reports are skeleton
- * placeholders until the first metadata arrives. The network is deliberately not shown.
+ * The small header above a sandbox terminal: instance ID, Debug Shell pill, Docker, the Global / Project settings
+ * links (dimmed when the sandbox does not use that file) and project path; the
+ * stopping (or restarting) timer with Force Stop; or "Exited with code N" with Close. Fields Hole reports are skeleton
+ * placeholders until the first metadata arrives. The network is deliberately not shown. While the sandbox runs, the
+ * Docker pill toggles Docker-in-Docker through a restart, and the toolbar at the right end offers Restart.
  */
 final class SandboxHeaderPanel extends JPanel {
 
@@ -37,52 +55,95 @@ final class SandboxHeaderPanel extends JPanel {
     private final Pill dockerPill = new Pill("NO", MUTED);
     private final Skeleton dockerSkeleton = new Skeleton(26);
     private final JComponent settingsField;
-    private final JBLabel settings = value();
+    private final ActionLink globalSettings;
+    private final ActionLink projectSettings;
     private final Skeleton settingsSkeleton = new Skeleton(150);
     private final JComponent projectField;
     private final JBLabel project = value();
     private final Skeleton projectSkeleton = new Skeleton(180);
-    private final JComponent uptimeField;
-    private final JBLabel uptime = value();
     private final JBLabel status = new JBLabel();
     private final JButton forceStop = new JButton("Force Stop");
     private final JBLabel forceStopHint = new JBLabel("Closes the tab; Hole's teardown continues in the background.");
     private final JButton close = new JButton("Close");
+    private final ActionToolbar toolbar;
+    /** Last model shown; {@code null} before the first render. Written on the EDT, read by action updates. */
+    private volatile HeaderModel model;
 
     /**
-     * @param onForceStop called when Force Stop is pressed
-     * @param onClose     called when Close is pressed
+     * @param onForceStop    called when Force Stop is pressed
+     * @param onClose        called when Close is pressed
+     * @param onToggleDocker called when the Docker pill of a running sandbox is clicked
+     * @param onRestart      called when Restart is pressed (only enabled while the sandbox runs)
+     * @param onSettings     called with the scope when the Global or Project settings link is clicked
+     * @param onNetwork      called when Network is pressed (only enabled while the sandbox runs)
      */
-    SandboxHeaderPanel(@NotNull Runnable onForceStop, @NotNull Runnable onClose) {
-        super(new WrapLayout(FlowLayout.LEFT, JBUI.scale(16), JBUI.scale(4)));
+    SandboxHeaderPanel(
+        @NotNull Runnable onForceStop,
+        @NotNull Runnable onClose,
+        @NotNull Runnable onToggleDocker,
+        @NotNull Runnable onRestart,
+        @NotNull Consumer<HoleSettingsClient.Scope> onSettings,
+        @NotNull Runnable onNetwork
+    ) {
+        super(new BorderLayout());
         setBorder(JBUI.Borders.compound(JBUI.Borders.customLineBottom(JBUI.CurrentTheme.ToolWindow.borderColor()), JBUI.Borders.empty(2, 6)));
-        add(field("Instance", this.instance));
-        add(this.debugPill);
+        final JPanel fields = new JPanel(new WrapLayout(FlowLayout.LEFT, JBUI.scale(16), JBUI.scale(4)));
+        fields.setOpaque(false);
+        fields.add(field("Instance", this.instance));
+        fields.add(this.debugPill);
         this.dockerField = field("Docker", this.dockerPill, this.dockerSkeleton);
-        this.settingsField = field("Settings", this.settings, this.settingsSkeleton);
+        this.globalSettings = new ActionLink("Global", event -> {
+            onSettings.accept(HoleSettingsClient.Scope.GLOBAL);
+        });
+        this.projectSettings = new ActionLink("Project", event -> {
+            onSettings.accept(HoleSettingsClient.Scope.PROJECT);
+        });
+        this.settingsField = field("Settings", this.globalSettings, this.projectSettings, this.settingsSkeleton);
         this.projectField = field("Project", this.project, this.projectSkeleton);
-        this.uptimeField = field("Up", this.uptime);
-        add(this.dockerField);
-        add(this.settingsField);
-        add(this.projectField);
-        add(this.uptimeField);
+        fields.add(this.dockerField);
+        fields.add(this.settingsField);
+        fields.add(this.projectField);
+        this.dockerPill.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent event) {
+                if (SandboxHeaderPanel.this.model != null && SandboxHeaderPanel.this.model.dockerToggle()) {
+                    onToggleDocker.run();
+                }
+            }
+        });
         this.status.setForeground(ERROR);
-        add(this.status);
-        this.forceStop.setToolTipText("Sends SIGKILL to the Hole process and closes the tab. Hole's watchdog keeps "
-            + "tearing the sandbox down in the background.");
+        fields.add(this.status);
         this.forceStop.addActionListener(event -> onForceStop.run());
-        add(this.forceStop);
+        fields.add(this.forceStop);
         this.forceStopHint.setForeground(MUTED);
         this.forceStopHint.setFont(JBFont.small());
-        add(this.forceStopHint);
+        fields.add(this.forceStopHint);
         this.close.addActionListener(event -> onClose.run());
-        add(this.close);
+        fields.add(this.close);
+        // GridBag centres the fields vertically when the toolbar makes the header taller than one row of fields
+        final JPanel centre = new JPanel(new GridBagLayout());
+        centre.setOpaque(false);
+        final GridBagConstraints constraints = new GridBagConstraints();
+        constraints.weightx = 1;
+        constraints.fill = GridBagConstraints.HORIZONTAL;
+        constraints.anchor = GridBagConstraints.WEST;
+        centre.add(fields, constraints);
+        add(centre, BorderLayout.CENTER);
+
+        this.toolbar = ActionManager.getInstance()
+            .createActionToolbar("HoleSandboxHeader", new DefaultActionGroup(new RestartAction(onRestart), new NetworkAction(onNetwork)), true);
+        this.toolbar.setTargetComponent(this);
+        this.toolbar.getComponent().setOpaque(false);
+        // no toolbar padding, so the header stays as low as a row of fields
+        this.toolbar.getComponent().setBorder(JBUI.Borders.empty());
+        add(this.toolbar.getComponent(), BorderLayout.EAST);
     }
 
     /**
      * Shows the model.
      */
     void render(@NotNull HeaderModel model) {
+        this.model = model;
         this.instance.setText(model.instanceId());
         this.debugPill.setVisible(model.debug());
 
@@ -90,28 +151,106 @@ final class SandboxHeaderPanel extends JPanel {
         this.dockerField.setVisible(fields);
         this.settingsField.setVisible(fields);
         this.projectField.setVisible(fields);
-        this.uptimeField.setVisible(model.metadata() && !model.uptime().isEmpty());
 
         this.dockerSkeleton.setVisible(model.pending());
         this.settingsSkeleton.setVisible(model.pending());
         this.projectSkeleton.setVisible(model.pending());
         this.dockerPill.setVisible(model.metadata());
-        this.settings.setVisible(model.metadata());
+        this.globalSettings.setVisible(model.metadata());
+        this.projectSettings.setVisible(model.metadata());
         this.project.setVisible(model.metadata());
         this.dockerPill.setPill(model.docker() ? "ON" : "NO", model.docker() ? OK : MUTED);
-        this.settings.setText(model.settings());
+        this.dockerPill.setCursor(model.dockerToggle() ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : null);
+        this.dockerPill.setToolTipText(model.dockerToggle()
+            ? "Click to restart the sandbox with Docker-in-Docker " + (model.docker() ? "off" : "on")
+            : null);
+        showSettingsLink(this.globalSettings, model.globalUsed(), "global");
+        showSettingsLink(this.projectSettings, model.projectUsed(), "project");
+        this.settingsField.setToolTipText(model.settingsTooltip().isEmpty() ? null : "Settings used: " + model.settingsTooltip());
         this.project.setText(model.project());
         this.project.setToolTipText(model.project());
-        this.uptime.setText(model.uptime());
 
         final String text = model.exited() != null ? model.exited() : model.stopping();
         this.status.setText(text == null ? "" : text);
         this.status.setVisible(text != null);
         this.forceStop.setVisible(model.forceStop());
-        this.forceStopHint.setVisible(model.forceStop());
+        this.forceStop.setToolTipText(model.forceStopCloses()
+            ? "Sends SIGKILL to the Hole process and closes the tab. Hole's watchdog keeps tearing the sandbox down "
+                + "in the background."
+            : "Sends SIGKILL to the Hole process; the sandbox then starts again in this tab. Hole's watchdog keeps "
+                + "tearing the old sandbox down in the background.");
+        this.forceStopHint.setVisible(model.forceStopCloses());
         this.close.setVisible(model.exited() != null);
+        // the Restart action reads the model; refresh it now instead of on the next periodic update
+        this.toolbar.updateActionsAsync();
         revalidate();
         repaint();
+    }
+
+    /**
+     * Network in the header toolbar: opens the runtime network editor; enabled only while the sandbox runs.
+     */
+    private final class NetworkAction extends DumbAwareAction {
+        private final Runnable onNetwork;
+
+        private NetworkAction(@NotNull Runnable onNetwork) {
+            super("Network…", "Change the network allow list of the running sandbox (hole modify)", AllIcons.General.Web);
+            this.onNetwork = onNetwork;
+        }
+
+        @Override
+        public void update(@NotNull AnActionEvent event) {
+            final HeaderModel current = SandboxHeaderPanel.this.model;
+            event.getPresentation().setEnabled(current != null && current.network());
+        }
+
+        @Override
+        public @NotNull ActionUpdateThread getActionUpdateThread() {
+            return ActionUpdateThread.BGT;
+        }
+
+        @Override
+        public void actionPerformed(@NotNull AnActionEvent event) {
+            this.onNetwork.run();
+        }
+    }
+
+    /**
+     * Restart in the header toolbar: enabled only while the sandbox runs. The confirmation is the caller's job.
+     */
+    private final class RestartAction extends DumbAwareAction {
+        private final Runnable onRestart;
+
+        private RestartAction(@NotNull Runnable onRestart) {
+            super("Restart Sandbox", "Stop this sandbox and start it again in this tab, e.g. to apply changed settings",
+                AllIcons.Actions.Restart);
+            this.onRestart = onRestart;
+        }
+
+        @Override
+        public void update(@NotNull AnActionEvent event) {
+            final HeaderModel current = SandboxHeaderPanel.this.model;
+            event.getPresentation().setEnabled(current != null && current.restart());
+        }
+
+        @Override
+        public @NotNull ActionUpdateThread getActionUpdateThread() {
+            // reads only the immutable model through a volatile field
+            return ActionUpdateThread.BGT;
+        }
+
+        @Override
+        public void actionPerformed(@NotNull AnActionEvent event) {
+            this.onRestart.run();
+        }
+    }
+
+    private void showSettingsLink(@NotNull ActionLink link, boolean used, @NotNull String scope) {
+        // a file the sandbox does not use (missing, or created after the start) is dimmed but still opens / creates it
+        link.setForeground(used ? JBUI.CurrentTheme.Link.Foreground.ENABLED : MUTED);
+        link.setToolTipText(used
+            ? "Opens the " + scope + " settings file used by this sandbox"
+            : "Not used by this sandbox; restart to apply after creating it");
     }
 
     @NotNull

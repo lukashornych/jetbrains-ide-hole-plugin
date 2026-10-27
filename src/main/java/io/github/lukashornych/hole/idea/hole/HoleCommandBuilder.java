@@ -114,6 +114,104 @@ public final class HoleCommandBuilder {
     }
 
     /**
+     * Returns `hole settings create global`: writes Hole's settings template to the global settings file (creating
+     * its directories); fails when the file exists. No `--overwrite` / `--append`: the plugin only creates files.
+     *
+     * @param executable path of the `hole` binary
+     */
+    @NotNull
+    public static List<String> settingsCreateGlobal(@NotNull String executable) {
+        return List.of(executable, "settings", "create", "global");
+    }
+
+    /**
+     * Returns `hole settings create project <path>`: like {@link #settingsCreateGlobal(String)} for the project
+     * settings file of the directory.
+     *
+     * @param executable       path of the `hole` binary
+     * @param projectDirectory the project directory, resolved to an absolute path
+     */
+    @NotNull
+    public static List<String> settingsCreateProject(@NotNull String executable, @NotNull String projectDirectory) {
+        return List.of(executable, "settings", "create", "project", projectDirectory);
+    }
+
+    /**
+     * Returns `hole modify <dir> <setting> list --instance-id ID --json`: the effective entries with their sources.
+     *
+     * @param executable       path of the `hole` binary
+     * @param projectDirectory absolute project directory of the sandbox
+     * @param instanceId       the sandbox (always given: without a terminal Hole cannot ask which one)
+     * @param setting          `network.allow` or `network.hostGatewayDomains`
+     */
+    @NotNull
+    public static List<String> modifyList(
+        @NotNull String executable, @NotNull String projectDirectory, @NotNull String instanceId, @NotNull String setting
+    ) {
+        return modify(executable, projectDirectory, instanceId, setting, "list", List.of(), true);
+    }
+
+    /**
+     * Returns `hole modify <dir> network.allow list-blocked --instance-id ID --json`: the names the gateway refused,
+     * newest first. It reads the gateway log, so it is the slowest call.
+     */
+    @NotNull
+    public static List<String> modifyListBlocked(
+        @NotNull String executable, @NotNull String projectDirectory, @NotNull String instanceId, @NotNull String setting
+    ) {
+        return modify(executable, projectDirectory, instanceId, setting, "list-blocked", List.of(), true);
+    }
+
+    /**
+     * Returns `hole modify <dir> <setting> add <values…> --instance-id ID`: all values in one gateway apply. Values
+     * are separate arguments (no shell), so `*.example.com` needs no quoting.
+     */
+    @NotNull
+    public static List<String> modifyAdd(
+        @NotNull String executable, @NotNull String projectDirectory, @NotNull String instanceId, @NotNull String setting,
+        @NotNull List<String> values
+    ) {
+        return modify(executable, projectDirectory, instanceId, setting, "add", values, false);
+    }
+
+    /**
+     * Returns `hole modify <dir> <setting> remove <values…> --instance-id ID`; Hole removes only runtime entries.
+     */
+    @NotNull
+    public static List<String> modifyRemove(
+        @NotNull String executable, @NotNull String projectDirectory, @NotNull String instanceId, @NotNull String setting,
+        @NotNull List<String> values
+    ) {
+        return modify(executable, projectDirectory, instanceId, setting, "remove", values, false);
+    }
+
+    @NotNull
+    private static List<String> modify(
+        @NotNull String executable, @NotNull String projectDirectory, @NotNull String instanceId, @NotNull String setting,
+        @NotNull String operation, @NotNull List<String> values, boolean json
+    ) {
+        if (!InstanceIdGenerator.isValid(instanceId)) {
+            throw new IllegalArgumentException("Invalid instance ID '" + instanceId + "': expected 6 characters a-z, 0-9.");
+        }
+        if ((operation.equals("add") || operation.equals("remove")) && values.isEmpty()) {
+            throw new IllegalArgumentException(operation + " needs at least one value.");
+        }
+        final List<String> command = new ArrayList<>(8 + values.size());
+        command.add(executable);
+        command.add("modify");
+        command.add(projectDirectory);
+        command.add(setting);
+        command.add(operation);
+        command.addAll(values);
+        command.add("--instance-id");
+        command.add(instanceId);
+        if (json) {
+            command.add("--json");
+        }
+        return Collections.unmodifiableList(command);
+    }
+
+    /**
      * Splits the free-text agent arguments the way a shell would split them (whitespace separated, single and double
      * quotes group words). Quotes are removed, empty quoted arguments (`""`) are kept, nothing is expanded.
      */

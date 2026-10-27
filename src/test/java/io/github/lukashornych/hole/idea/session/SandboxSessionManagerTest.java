@@ -306,6 +306,85 @@ class SandboxSessionManagerTest {
         assertTrue(this.view.ops.isEmpty(), "no tab: " + this.view.ops);
     }
 
+    @Test
+    void restartProbesOffTheUiThreadAndStartsTheNewConfigInTheSameTab() throws Exception {
+        final SandboxSession session = startAndWait(SandboxConfig.defaults(), "aaaaaa");
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+        final Thread uiThread = onUi(Thread::currentThread);
+        final List<Thread> probes = new CopyOnWriteArrayList<>();
+        final Supplier<HoleCapability> real = this.capability;
+        this.capability = () -> {
+            probes.add(Thread.currentThread());
+            return real.get();
+        };
+
+        assertTrue(this.manager.restart(session, SandboxConfig.defaults().withProfile("research")).get(20, TimeUnit.SECONDS));
+        assertEquals(1, probes.size(), "Hole is probed again");
+        assertFalse(probes.contains(uiThread), "probe and spawn run off the UI thread");
+
+        waitUntil(() -> this.view.ops.contains("restart " + id(session)), () -> "terminal reconnected: " + this.view.ops);
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "new sandbox runs");
+        assertEquals("research", session.launch().config().profile());
+        assertTrue(this.hole.calls().stream().anyMatch(call -> call.startsWith("start claude:research . --instance-id ")),
+            this.hole.calls().toString());
+        assertEquals(List.of(session), this.manager.sessions(), "same tab");
+        assertFalse(this.view.removed.contains(session));
+    }
+
+    @Test
+    void restartOfADebugShellStartsADebugShellAgain() throws Exception {
+        final SandboxSession session = this.manager.start(SandboxConfig.defaults(), true, "aaaaaa").get(20, TimeUnit.SECONDS);
+        waitUntil(() -> session != null && this.view.added.contains(session), "tab added");
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+
+        assertTrue(this.manager.restart(session, null).get(20, TimeUnit.SECONDS));
+        waitUntil(() -> this.hole.calls().stream().filter(call -> call.startsWith("start ")).count() == 2, () -> this.hole.calls().toString());
+        final List<String> starts = this.hole.calls().stream().filter(call -> call.startsWith("start ")).toList();
+        assertTrue(starts.get(1).startsWith("start claude . -d --instance-id "), starts.toString());
+        assertTrue(session.launch().debug());
+    }
+
+    @Test
+    void restartIsRefusedWhenTheProbeFailsAndLeavesTheSandboxRunning() throws Exception {
+        final SandboxSession session = startAndWait(SandboxConfig.defaults(), "aaaaaa");
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+        this.capability = () -> new HoleCapability(HoleCapability.Status.NOT_FOUND, null, "Hole was not found");
+
+        assertFalse(this.manager.restart(session, null).get(20, TimeUnit.SECONDS));
+        assertEquals(List.of("cannotStart NOT_FOUND"), this.notifier.events);
+        assertEquals(SessionState.RUNNING, session.snapshot().state());
+        assertTrue(session.process().isAlive(), "no SIGINT");
+        assertEquals(1, this.hole.calls().stream().filter(call -> call.startsWith("start ")).count());
+    }
+
+    @Test
+    void restartOfANotRunningSessionDoesNotProbe() throws Exception {
+        this.hole.environment().put("FAKE_HOLE_START_EXIT", "1");
+        final SandboxSession session = startAndWait(SandboxConfig.defaults(), "aaaaaa");
+        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+        this.capability = () -> {
+            throw new AssertionError("no probe for a refused restart");
+        };
+        assertFalse(this.manager.restart(session, null).get(20, TimeUnit.SECONDS));
+        assertTrue(this.notifier.events.isEmpty(), this.notifier.events.toString());
+    }
+
+    @Test
+    void restartWhoseNewProcessCannotBeSpawnedNotifiesAndKeepsTheTabExited() throws Exception {
+        final SandboxSession session = startAndWait(SandboxConfig.defaults(), "aaaaaa");
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+        final Path broken = Files.createDirectories(this.temp.resolve("not-a-binary"));
+        this.capability = () -> new HoleCapability(HoleCapability.Status.SUPPORTED, broken, "");
+
+        assertTrue(this.manager.restart(session, SandboxConfig.defaults().withAgentArgs("--token s3cr3t")).get(20, TimeUnit.SECONDS));
+        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+        waitUntil(() -> !this.notifier.events.isEmpty(), "notified");
+        assertTrue(this.notifier.events.get(0).startsWith("restartFailed"), this.notifier.events.toString());
+        assertFalse(this.notifier.events.get(0).contains("s3cr3t"), "no command line in the message");
+        onUi(() -> null);
+        assertFalse(this.view.removed.contains(session), "the tab stays with the old output");
+    }
+
     @NotNull
     private SandboxSession startAndWait(@NotNull SandboxConfig config, @NotNull String id) throws Exception {
         final SandboxSession session = this.manager.start(config, false, id).get(20, TimeUnit.SECONDS);
@@ -404,6 +483,11 @@ class SandboxSessionManagerTest {
         @Override
         public void spawnFailed(@NotNull String reason) {
             this.events.add("spawnFailed " + reason);
+        }
+
+        @Override
+        public void restartFailed(@NotNull String reason) {
+            this.events.add("restartFailed " + reason);
         }
     }
 }

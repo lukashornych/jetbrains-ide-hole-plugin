@@ -1,0 +1,8 @@
+{
+  "instanceId": "k3x9a2",
+  "blocked": [
+    {"name": "telemetry.example.com", "count": 12, "firstSeen": "2026-10-21T10:01:02+02:00", "lastSeen": "2026-10-21T10:25:40+02:00"},
+    {"name": "cdn.a.b.example.org", "count": 1, "firstSeen": "garbage", "lastSeen": "2026-10-21T08:00:00Z", "kind": "A"},
+    {"count": 5}
+  ]
+}

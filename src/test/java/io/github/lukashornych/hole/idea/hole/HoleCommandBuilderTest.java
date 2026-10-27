@@ -221,4 +221,22 @@ class HoleCommandBuilderTest {
         final List<String> command = HoleCommandBuilder.start(HOLE, SandboxConfig.defaults(), ID);
         assertThrows(UnsupportedOperationException.class, () -> command.add("x"));
     }
+
+    @Test
+    void modifyCommandsNameTheSandboxByPathAndInstanceId() {
+        assertEquals(List.of(HOLE, "modify", "/work/my project", "network.allow", "list", "--instance-id", "k3x9a2", "--json"),
+            HoleCommandBuilder.modifyList(HOLE, "/work/my project", "k3x9a2", "network.allow"));
+        assertEquals(List.of(HOLE, "modify", "/work/acme", "network.allow", "list-blocked", "--instance-id", "k3x9a2", "--json"),
+            HoleCommandBuilder.modifyListBlocked(HOLE, "/work/acme", "k3x9a2", "network.allow"));
+        assertEquals(List.of(HOLE, "modify", "/work/acme", "network.hostGatewayDomains", "add", "*.example.com:443,80",
+                "db.example.com", "--instance-id", "k3x9a2"),
+            HoleCommandBuilder.modifyAdd(HOLE, "/work/acme", "k3x9a2", "network.hostGatewayDomains",
+                List.of("*.example.com:443,80", "db.example.com")));
+        assertEquals(List.of(HOLE, "modify", "/work/acme", "network.allow", "remove", "a.example.com", "--instance-id", "k3x9a2"),
+            HoleCommandBuilder.modifyRemove(HOLE, "/work/acme", "k3x9a2", "network.allow", List.of("a.example.com")));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+            () -> HoleCommandBuilder.modifyAdd(HOLE, "/work/acme", "k3x9a2", "network.allow", List.of()));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+            () -> HoleCommandBuilder.modifyList(HOLE, "/work/acme", "BAD", "network.allow"));
+    }
 }

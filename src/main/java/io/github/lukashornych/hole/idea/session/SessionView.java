@@ -19,7 +19,8 @@ public interface SessionView {
     void update(@NotNull SandboxSession session);
 
     /**
-     * The session replaced its process (retry with a new instance ID); connect the terminal to the new process.
+     * The session replaced its process (retry with a new instance ID, or a restart); connect the terminal to the new
+     * process.
      */
     void processRestarted(@NotNull SandboxSession session);
 

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Fake `hole` CLI for the plugin tests (implementation plan, section 4). It implements just enough of Hole 2.6.0's
-# `hole start`, `hole list [--json] [--no-gc] [id]`, `hole settings get` and `hole version` to exercise the plugin
+# `hole start`, `hole list [--json] [--no-gc] [id]`, `hole settings get|create`, `hole modify` and `hole version` to
+# exercise the plugin
 # without Docker. Error lines look like Hole's: `[ERROR] message`, coloured when stderr is a terminal.
 #
 # All state lives in $FAKE_HOLE_STATE_DIR (required):
@@ -8,6 +9,7 @@
 #   calls.log             one line per invocation (the arguments), so tests can count polls
 #   leftovers/<id>        `start --instance-id <id>` fails like Hole with leftovers of an abandoned sandbox
 #   child.pid, child.int  written by the FAKE_HOLE_CHILD child: its PID, and a marker when SIGINT reached it
+#   modify/<id>/<setting> runtime entries `hole modify … add` recorded for an instance, one per line
 #
 # Behaviour switches (environment):
 #   FAKE_HOLE_MODE=old          a Hole before 2.6.0: `version` prints `hole 2.5.0`, `list --json` and
@@ -25,7 +27,23 @@
 #                               image build: the child ends only on SIGINT, and `start` handles its own SIGINT only
 #                               after the child has ended. So a SIGINT to the process group stops both at once, while
 #                               a SIGINT to the `hole` process alone waits for the child forever.
-#   HOLE_SETTINGS_FILE, HOLE_PROJECT_SETTINGS_FILE   honoured by `settings get` like by Hole
+#   FAKE_HOLE_CHILD=running     like 1, but the child starts once the status is `running` (like a process of the
+#                               running agent), so a restart of a RUNNING sandbox can be tested with it
+#   HOLE_SETTINGS_FILE, HOLE_PROJECT_SETTINGS_FILE   honoured by `settings get` and `settings create` like by Hole
+#   FAKE_HOLE_MODIFY_BASE=LIST  base (non-runtime) entries for `modify … list`: `;`-separated `setting=entry@source`,
+#                               e.g. `network.allow=api.example.com:443@settings;network.allow=x.example.org@agent:claude`
+#   FAKE_HOLE_BLOCKED=LIST      blocked names for `modify … list-blocked`, newest first: `;`-separated
+#                               `name|count|firstSeen|lastSeen`; names an allowed runtime entry covers are left out
+#   FAKE_HOLE_MODIFY_EXIT=N     every `modify` call fails with exit code N and FAKE_HOLE_MODIFY_MESSAGE (default
+#                               `fake modify failure`) as `[ERROR]` line, to simulate exits 2 / 3 / 4
+#
+# `modify <path> <setting> list|list-blocked|add|remove [values…] --instance-id ID [--json]` follows Hole 2.6.0:
+# exit 3 when the instance is not running (or still starting), 2 for an invalid value, a removal of a base entry or
+# `network.allow add` in a sandbox started with -u; `add` ignores values that are already there. `list --json` of
+# `hole list` reports `runtimeEntryCount` from the recorded entries. FAKE_HOLE_MODE=old rejects `modify`.
+#
+# `settings create {global|project <path>}` writes Hole's template (`{"$schema": …}`) and creates parent directories;
+# an existing file fails with Hole's `settings file already exists: '<path>'; …` (no --overwrite / --append).
 
 set -u
 state="${FAKE_HOLE_STATE_DIR:?FAKE_HOLE_STATE_DIR is not set}"
@@ -46,6 +64,11 @@ json_escape() {
     printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
+# runtime_count <id>: number of entries `modify … add` recorded for the instance
+runtime_count() {
+    cat "$state/modify/$1"/* 2>/dev/null | grep -c . || true
+}
+
 # write_instance <file> <status>; uses the variables set by `start`
 write_instance() {
     tmp="$1.tmp"
@@ -64,6 +87,7 @@ write_instance() {
   "networks": ["hole-$(json_escape "$project_name")-${id}_sandbox"],
   "settings": ["global(~/.hole/settings.json)"],
   "settingsFiles": [],
+  "runtimeEntryCount": $(runtime_count "$id"),
   "flags": {
     "debug": $debug,
     "rebuild": $rebuild,
@@ -124,7 +148,11 @@ cmd_list() {
 }
 
 cmd_settings() {
-    if [ "${1:-}" != "get" ]; then error "invalid settings subcommand '${1:-}'; expected create, open or get"; exit 1; fi
+    subcommand="${1:-}"
+    case "$subcommand" in
+        get|create) ;;
+        *) error "invalid settings subcommand '${1:-}'; expected create, open or get"; exit 1 ;;
+    esac
     case "${2:-}" in
         global)
             path="${HOLE_SETTINGS_FILE:-$HOME/.hole/settings.json}"
@@ -143,6 +171,16 @@ cmd_settings() {
         /*) ;;
         *) error "settings file path '$path' must be an absolute path"; exit 1 ;;
     esac
+    if [ "$subcommand" = create ]; then
+        if [ -e "$path" ]; then
+            error "settings file already exists: '$path'; use --overwrite to replace it or --append to add the template fields"
+            exit 1
+        fi
+        mkdir -p "$(dirname "$path")"
+        printf '{\n  "$schema": "https://example.invalid/hole/settings.schema.json"\n}\n' > "$path"
+        echo "[INFO] Created $path" >&2
+        exit 0
+    fi
     if [ ! -f "$path" ]; then
         error "settings file '$path' does not exist; create it with '$hint'"
         exit 1
@@ -240,11 +278,14 @@ cmd_start() {
         trap 'teardown 129' HUP
     fi
 
-    if [ "${FAKE_HOLE_CHILD:-}" = "1" ]; then
-        echo "Building image..."
-        # foreground, like Hole waiting for `docker compose build`; the shell runs its own trap only once it ends
+    # foreground, like Hole waiting for `docker compose build`; the shell runs its own trap only once it ends
+    run_child() {
         sh -c 'trap "echo interrupted > \"\$1/child.int\"; exit 130" INT; echo $$ > "$1/child.pid"
                while :; do sleep 0.1; done' fake-hole-child "$state"
+    }
+    if [ "${FAKE_HOLE_CHILD:-}" = "1" ]; then
+        echo "Building image..."
+        run_child
     fi
 
     running_after="${FAKE_HOLE_RUNNING_AFTER:-1}"
@@ -260,11 +301,131 @@ cmd_start() {
             status=running
             write_instance "$file" running
             echo "Starting $agent agent..."
+            if [ "${FAKE_HOLE_CHILD:-}" = "running" ]; then run_child; fi
         fi
         if [ -n "$exit_after" ] && [ "$ticks" -ge "$exit_ticks" ]; then
             teardown 0
         fi
     done
+}
+
+cmd_modify() {
+    m_path=""; m_setting=""; m_op=""; m_id=""; m_json=false; m_values=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --instance-id) shift; m_id="${1:-}" ;;
+            --json) m_json=true ;;
+            -*) error "unknown option '$1'; run 'hole help' for usage"; exit 1 ;;
+            *)
+                if [ -z "$m_path" ]; then m_path="$1"
+                elif [ -z "$m_setting" ]; then m_setting="$1"
+                elif [ -z "$m_op" ]; then m_op="$1"
+                else m_values="$m_values
+$1"
+                fi ;;
+        esac
+        shift
+    done
+    if [ -n "${FAKE_HOLE_MODIFY_EXIT:-}" ]; then
+        error "${FAKE_HOLE_MODIFY_MESSAGE:-fake modify failure}"
+        exit "$FAKE_HOLE_MODIFY_EXIT"
+    fi
+    case "$m_setting" in
+        network.allow|network.hostGatewayDomains) ;;
+        *) error "setting '$m_setting' is not modifiable at runtime; modifiable settings: network.allow, network.hostGatewayDomains"; exit 2 ;;
+    esac
+    case "$m_op" in
+        list|add|remove) ;;
+        list-blocked)
+            if [ "$m_setting" != network.allow ]; then
+                error "invalid operation 'list-blocked' for $m_setting; expected one of: add, remove, list, edit"; exit 1
+            fi ;;
+        *) error "invalid operation '$m_op' for $m_setting"; exit 1 ;;
+    esac
+    instance="$instances/$m_id.json"
+    if [ ! -f "$instance" ]; then
+        error "no sandbox with instance ID '$m_id' is running for $m_path"; exit 3
+    fi
+    if grep -q '"status": "starting"' "$instance"; then
+        error "sandbox $m_id is still starting; try again once it runs"; exit 3
+    fi
+    runtime="$state/modify/$m_id/$m_setting"
+    mkdir -p "$state/modify/$m_id"
+    touch "$runtime"
+    case "$m_op" in
+        list)
+            if [ "$m_json" != true ]; then cat "$runtime"; exit 0; fi
+            printf '{"instanceId": "%s", "entries": [' "$m_id"
+            first=true
+            old_ifs="$IFS"; IFS=';'
+            for item in ${FAKE_HOLE_MODIFY_BASE:-}; do
+                IFS="$old_ifs"
+                [ "${item%%=*}" = "$m_setting" ] || continue
+                rest="${item#*=}"
+                if [ "$first" = true ]; then first=false; else printf ', '; fi
+                printf '{"entry": "%s", "source": "%s"}' "$(json_escape "${rest%@*}")" "$(json_escape "${rest##*@}")"
+            done
+            IFS="$old_ifs"
+            while IFS= read -r entry; do
+                [ -n "$entry" ] || continue
+                if [ "$first" = true ]; then first=false; else printf ', '; fi
+                printf '{"entry": "%s", "source": "runtime"}' "$(json_escape "$entry")"
+            done < "$runtime"
+            printf '], "futureField": true}\n'
+            exit 0 ;;
+        list-blocked)
+            printf '{"instanceId": "%s", "blocked": [' "$m_id"
+            first=true
+            old_ifs="$IFS"; IFS=';'
+            for item in ${FAKE_HOLE_BLOCKED:-}; do
+                IFS="$old_ifs"
+                name="${item%%|*}"; rest="${item#*|}"
+                count="${rest%%|*}"; rest="${rest#*|}"
+                first_seen="${rest%%|*}"; last_seen="${rest#*|}"
+                allowed=false
+                while IFS= read -r entry; do
+                    host="${entry%%:*}"
+                    case "$host" in
+                        "$name") allowed=true ;;
+                        \*.*) case "$name" in *"${host#\*}") allowed=true ;; esac ;;
+                    esac
+                done < "$runtime"
+                [ "$allowed" = false ] || continue
+                if [ "$first" = true ]; then first=false; else printf ', '; fi
+                printf '{"name": "%s", "count": %s, "firstSeen": "%s", "lastSeen": "%s"}' "$name" "$count" "$first_seen" "$last_seen"
+            done
+            IFS="$old_ifs"
+            printf ']}\n'
+            exit 0 ;;
+    esac
+    if [ -z "$m_values" ]; then error "$m_op needs at least one value"; exit 1; fi
+    if [ "$m_op" = add ] && [ "$m_setting" = network.allow ] && grep -q '"unrestricted": true' "$instance"; then
+        error "sandbox $m_id runs with unrestricted network access (-u); network.allow cannot change"; exit 2
+    fi
+    printf '%s\n' "$m_values" | while IFS= read -r value; do
+        [ -n "$value" ] || continue
+        case "$value" in
+            *" "*|:*|*::*) error "invalid entry '$value'"; exit 2 ;;
+        esac
+        if [ "$m_op" = remove ] && ! grep -qxF "$value" "$runtime"; then
+            if printf '%s' "${FAKE_HOLE_MODIFY_BASE:-}" | tr ';' '\n' | sed 's/@[^@]*$//' | grep -qxF "$m_setting=$value"; then
+                error "'$value' comes from the sandbox's settings or an agent and cannot be removed"; exit 2
+            fi
+            error "'$value' is not a runtime entry of $m_setting"; exit 2
+        fi
+    done || exit $?
+    printf '%s\n' "$m_values" | while IFS= read -r value; do
+        [ -n "$value" ] || continue
+        if [ "$m_op" = add ]; then
+            grep -qxF "$value" "$runtime" || echo "$value" >> "$runtime"
+        else
+            grep -vxF "$value" "$runtime" > "$runtime.tmp" || true
+            mv "$runtime.tmp" "$runtime"
+        fi
+    done
+    count="$(runtime_count "$m_id")"
+    sed "s/\"runtimeEntryCount\": [0-9]*/\"runtimeEntryCount\": $count/" "$instance" > "$instance.tmp" && mv "$instance.tmp" "$instance"
+    exit 0
 }
 
 command="${1:-help}"
@@ -273,6 +434,9 @@ case "$command" in
     list) cmd_list "$@" ;;
     start) cmd_start "$@" ;;
     settings) cmd_settings "$@" ;;
+    modify)
+        if [ "$mode" = "old" ]; then error "invalid command 'modify'"; exit 1; fi
+        cmd_modify "$@" ;;
     version) cmd_version ;;
     help) echo "Usage: hole {command} {agent}[:{profile}] {path} [options]"; exit 0 ;;
     *) error "invalid command '$command'"; exit 1 ;;

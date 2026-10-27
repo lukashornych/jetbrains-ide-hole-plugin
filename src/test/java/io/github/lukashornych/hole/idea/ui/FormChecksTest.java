@@ -55,15 +55,26 @@ class FormChecksTest {
         assertTrue(atRoot.projectDirectoryExists());
         assertEquals(this.home.resolve(".hole/settings.json"), atRoot.globalSettings());
         assertTrue(atRoot.globalSettingsExists());
-        assertNull(atRoot.projectSettings(), "no project settings at the root: link hidden");
+        assertEquals(new HoleSettingsClient.SettingsFile(root.resolve(".hole/settings.json"), false), atRoot.projectSettings(),
+            "a missing project file is reported with its path, so it can be created");
         assertEquals(List.of("research"), atRoot.profiles());
         assertEquals(List.of("claude", "gemini", "codex", "aider"), atRoot.agents());
 
         final FormChecks atWorktree = FormChecks.run(this.locator, this.settings, root, SandboxConfig.defaults().withProjectPath("../worktree"));
-        assertEquals(worktree.resolve("settings.json"), atWorktree.projectSettings());
+        assertEquals(new HoleSettingsClient.SettingsFile(worktree.resolve("settings.json"), true), atWorktree.projectSettings());
         assertEquals(List.of("research", "review"), atWorktree.profiles());
         assertTrue(this.hole.calls().contains("settings get project " + this.temp.resolve("worktree").toRealPath()),
             "Hole is asked for the resolved path: " + this.hole.calls());
+    }
+
+    @Test
+    void projectFileCreatedThroughHoleIsReportedAsExistingByTheNextCheck() throws Exception {
+        final Path root = Files.createDirectories(this.temp.resolve("root")).toRealPath();
+        assertFalse(FormChecks.run(this.locator, this.settings, root, SandboxConfig.defaults()).projectSettings().exists());
+
+        assertEquals(HoleSettingsClient.Created.CREATED, this.settings.create(HoleSettingsClient.Scope.PROJECT, root).outcome());
+        final FormChecks after = FormChecks.run(this.locator, this.settings, root, SandboxConfig.defaults());
+        assertEquals(new HoleSettingsClient.SettingsFile(root.resolve(".hole/settings.json"), true), after.projectSettings());
     }
 
     @Test

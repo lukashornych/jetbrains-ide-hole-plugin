@@ -86,6 +86,16 @@ class HoleListParserTest {
     }
 
     @Test
+    void runtimeEntryCountDefaultsToZero() {
+        final List<InstanceInfo> instances = HoleListParser.parse("""
+            [{"instanceId": "r8tq2c", "runtimeEntryCount": 3}, {"instanceId": "k3x9a2"}, {"instanceId": "m4p7q1", "runtimeEntryCount": "x"}]
+            """);
+        assertEquals(3, instances.get(0).runtimeEntryCount());
+        assertEquals(0, instances.get(1).runtimeEntryCount(), "absent");
+        assertEquals(0, instances.get(2).runtimeEntryCount(), "mistyped");
+    }
+
+    @Test
     void emptyArray() {
         assertTrue(HoleListParser.parse("[]\n").isEmpty());
         assertTrue(HoleListParser.parse("  [ ]  ").isEmpty());

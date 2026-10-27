@@ -28,6 +28,8 @@ import java.util.List;
  * @param flags         start flags
  * @param pid           PID of the `hole start` process, 0 when unknown
  * @param version       Hole version that started the sandbox
+ * @param runtimeEntryCount entries added with `hole modify` to the running sandbox (lost on a restart), 0 when Hole
+ *                          reported none
  */
 public record InstanceInfo(
     @NotNull String instanceId,
@@ -45,7 +47,8 @@ public record InstanceInfo(
     @NotNull List<String> settingsFiles,
     @NotNull InstanceFlags flags,
     long pid,
-    @NotNull String version
+    @NotNull String version,
+    long runtimeEntryCount
 ) {
 
     public InstanceInfo {

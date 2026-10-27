@@ -14,6 +14,9 @@ import java.util.List;
  */
 public record CliResult(@NotNull List<String> command, int exitCode, @NotNull String stdout, @NotNull String stderr) {
 
+    /** Prefix of Hole's error lines (uncoloured: Hole colours them only on a terminal). */
+    private static final String ERROR_PREFIX = "[ERROR]";
+
     public CliResult {
         command = List.copyOf(command);
     }
@@ -32,5 +35,18 @@ public record CliResult(@NotNull List<String> command, int exitCode, @NotNull St
     @NotNull
     public String firstStderrLine() {
         return this.stderr.lines().map(String::trim).filter(line -> !line.isEmpty()).findFirst().orElse("");
+    }
+
+    /**
+     * Returns Hole's error message: the first `[ERROR] …` line of stderr without the prefix (Hole may print
+     * `[INFO] …` lines before it), or {@link #firstStderrLine()} when there is none.
+     */
+    @NotNull
+    public String errorMessage() {
+        return this.stderr.lines().map(String::trim)
+            .filter(line -> line.startsWith(ERROR_PREFIX))
+            .map(line -> line.substring(ERROR_PREFIX.length()).trim())
+            .findFirst()
+            .orElseGet(this::firstStderrLine);
     }
 }

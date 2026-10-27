@@ -137,7 +137,8 @@ class RealHoleBinaryTest {
     @Test
     void settingsGetForExistingAndMissingFiles() throws IOException {
         final HoleSettingsClient client = new HoleSettingsClient(this.binary.toString(), this.runner);
-        assertEquals(Optional.empty(), client.existingProjectFile(this.project), "missing project file");
+        assertEquals(Optional.of(new HoleSettingsClient.SettingsFile(this.project.resolve(".hole/settings.json"), false)),
+            client.project(this.project), "missing project file, path taken from Hole's error");
         assertEquals(
             Optional.of(new HoleSettingsClient.SettingsFile(this.home.resolve(".hole/settings.json"), false)),
             client.global(),
@@ -145,8 +146,19 @@ class RealHoleBinaryTest {
         );
 
         final Path projectFile = Files.writeString(Files.createDirectories(this.project.resolve(".hole")).resolve("settings.json"), "{}");
-        assertEquals(Optional.of(projectFile), client.existingProjectFile(this.project));
+        assertEquals(Optional.of(new HoleSettingsClient.SettingsFile(projectFile, true)), client.project(this.project));
         final Path globalFile = Files.writeString(Files.createDirectories(this.home.resolve(".hole")).resolve("settings.json"), "{}");
         assertEquals(Optional.of(new HoleSettingsClient.SettingsFile(globalFile, true)), client.global());
+    }
+
+    @Test
+    void modifyOfASandboxThatIsNotRunningIsReportedAsNotRunning() {
+        // starting a real sandbox needs images and an agent; the JSON contract is covered by HoleModifyParserTest
+        final io.github.lukashornych.hole.idea.hole.HoleModifyClient client = new io.github.lukashornych.hole.idea.hole.HoleModifyClient(
+            this.binary.toString(), this.runner, this.project, "zz9zz9");
+        assertEquals(io.github.lukashornych.hole.idea.hole.HoleModifyClient.ModifyFailure.NOT_RUNNING,
+            client.list(io.github.lukashornych.hole.idea.model.NetworkSetting.ALLOW).failure());
+        assertEquals(io.github.lukashornych.hole.idea.hole.HoleModifyClient.ModifyFailure.NOT_RUNNING,
+            client.listBlocked().failure());
     }
 }

@@ -146,11 +146,12 @@ final class HoleToolWindowView implements SessionView, ContentManagerListener {
 
     private static void present(@NotNull SandboxSession session, @NotNull Content content) {
         final SandboxSession.Snapshot snapshot = session.snapshot();
-        final Path directory = session.launch().projectDirectory();
-        final String folder = directory.getFileName() == null ? directory.toString() : directory.getFileName().toString();
+        // read once: a restart may replace the launch
+        final SandboxSession.Launch launch = session.launch();
+        final Path directory = launch.projectDirectory();
         final InstanceInfo info = snapshot.info();
-        content.setDisplayName(SessionPresentation.tabTitle(session.launch().config(), snapshot.agentTitle(), folder));
-        content.setIcon(HoleIcons.tabIcon(snapshot.state(), session.launch().debug()));
+        content.setDisplayName(SessionPresentation.tabTitle(launch.config(), snapshot.agentTitle(), SessionPresentation.projectFolder(directory)));
+        content.setIcon(HoleIcons.tabIcon(snapshot.state(), launch.debug()));
         content.setDescription(SessionPresentation.tooltip(
             snapshot.instanceId(),
             info != null && !info.projectPath().isEmpty() ? info.projectPath() : directory.toString()
