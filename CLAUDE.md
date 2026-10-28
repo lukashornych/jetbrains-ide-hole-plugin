@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 IntelliJ Platform plugin for managing [Hole](https://github.com/lukashornych/hole) sandboxes. The behaviour is
-specified in `documentation/specification.md`; `documentation/design-mockup.html` is the UI mockup. For questions
+specified in `documentation/developer/specification.md`; `documentation/design-mockup.html` is the UI mockup. For questions
 about Hole itself, read its sources at `~/www/oss/hole` (never modify them).
 
 ## Build

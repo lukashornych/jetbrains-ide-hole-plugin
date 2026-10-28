@@ -1,0 +1,81 @@
+# Builds and releases a new public version of the plugin and puts it into `Releases` section of GitHub
+
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.ref_name }}   # for the same branch
+  cancel-in-progress: false       # never cancel a release in progress, queue the next one instead
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build and release
+    runs-on: ubuntu-latest
+
+    permissions:
+      # write permission is required to create a github release
+      contents: write
+      # read permission is required for release-drafter to collect merged pull requests into release notes
+      pull-requests: read
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve new release version
+        id: release_version
+        uses: codacy/git-version@2.7.1
+        with:
+          tool-version: 2.7.1
+          release-branch: main
+          dev-branch: dev
+          prefix: 'v'
+          minor-identifier: '/feat(?:\\([^)]+\\))?:/'
+          major-identifier: '/(?:BREAKING CHANGE|[a-z]+(?:\\([^)]+\\))?!:)/'
+
+      - name: Strip version prefix
+        id: plugin_version
+        env:
+          VERSION: ${{ steps.release_version.outputs.version }}
+        run: echo "version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # the version is passed as a property, so gradle.properties stays on the SNAPSHOT version
+      - name: Test
+        run: ./gradlew test -PpluginVersion=${{ steps.plugin_version.outputs.version }}
+
+      - name: Build plugin
+        run: ./gradlew buildPlugin -PpluginVersion=${{ steps.plugin_version.outputs.version }}
+
+      - name: Create release
+        id: create_release
+        uses: release-drafter/release-drafter@v6
+        with:
+          version: ${{ steps.release_version.outputs.version }}
+          publish: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload plugin ZIP to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release upload "${{ steps.create_release.outputs.tag_name }}"
+          "build/distributions/jetbrains-ide-hole-plugin-${{ steps.plugin_version.outputs.version }}.zip"

@@ -6,7 +6,7 @@ more convenient alternative to launching Hole manually in the built-in Terminal 
 
 Related documents:
 
-- `documentation/design-mockup.html` – interactive design mockup (published as an artifact) with the decision log.
+- `../design-mockup.html` – interactive design mockup (published as an artifact) with the decision log.
 - `documentation/hole-assignment-instance-id-and-list-json.md` – changes required in Hole itself (implemented in
   Hole 2.6.0, the minimum version the plugin supports).
 

@@ -1,0 +1,41 @@
+# Verifies dev branch integrity and pull requests targeting dev
+
+name: Dev
+
+on:
+  push:
+    branches:
+      - dev
+  pull_request:
+    branches:
+      - dev
+
+concurrency:
+  group: ${{ github.head_ref || github.ref_name }}  # for the same branch (dev or PR)
+  cancel-in-progress: true        # run only one workflow at a time (cancel the previous)
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify (test and build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test
+        run: ./gradlew test
+
+      - name: Build
+        run: ./gradlew buildPlugin
