@@ -17,9 +17,9 @@ import java.util.List;
  * New Sandbox…
  *
  * This project
- *   evita tests   claude ./worktrees/feature
+ *   evita tests   claude:research
  * All projects
- *   Claude here   claude .
+ *   Claude here   claude
  * More…   Edit Favourites…
  * </pre>
  *
@@ -68,7 +68,7 @@ public record EmptyStateModel(@NotNull List<Line> lines) {
             lines.add(new Line(
                 startable ? Kind.FAVOURITE : Kind.DISABLED_FAVOURITE,
                 favourite.name(),
-                favourite.config().agentSpec() + " " + favourite.config().projectPath(),
+                favourite.config().agentSpec(),
                 favourite
             ));
         }

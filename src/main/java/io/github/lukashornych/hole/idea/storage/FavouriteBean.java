@@ -14,7 +14,8 @@ import java.util.Objects;
 
 /**
  * Persisted form of a {@link Favourite}. Mutable with a no-arg constructor, as the XML serializer requires; the scope
- * is not stored, because it follows from the file the bean is stored in.
+ * is not stored, because it follows from the file the bean is stored in. Neither is the project path (see
+ * {@link Favourite}); the `projectPath` option of older versions is ignored on load.
  */
 @Data
 @NoArgsConstructor
@@ -23,7 +24,6 @@ public class FavouriteBean {
     private String name = "";
     private String agent = SandboxConfig.DEFAULT_AGENT;
     private String profile = "";
-    private String projectPath = SandboxConfig.DEFAULT_PROJECT_PATH;
     private boolean withDocker;
     private boolean unrestrictedNetwork;
     private boolean trustProject;
@@ -45,7 +45,6 @@ public class FavouriteBean {
         bean.name = favourite.name();
         bean.agent = config.agent();
         bean.profile = config.profile();
-        bean.projectPath = config.projectPath();
         bean.withDocker = config.withDocker();
         bean.unrestrictedNetwork = config.unrestrictedNetwork();
         bean.trustProject = config.trustProject();
@@ -70,7 +69,7 @@ public class FavouriteBean {
             : this.libraries.stream().filter(Objects::nonNull).map(LibraryBean::toLibrary).toList();
         return new Favourite(Objects.requireNonNullElse(this.name, ""), scope, new SandboxConfig(
             Objects.requireNonNullElse(this.agent, ""), Objects.requireNonNullElse(this.profile, ""),
-            Objects.requireNonNullElse(this.projectPath, ""),
+            SandboxConfig.DEFAULT_PROJECT_PATH,
             this.withDocker, this.unrestrictedNetwork, this.trustProject, this.dumpNetworkAccess, this.rebuild, this.updateAgents,
             this.imagePaste, libs, Objects.requireNonNullElse(this.agentArgs, "")
         ));

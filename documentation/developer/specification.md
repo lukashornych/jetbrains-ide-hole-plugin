@@ -33,19 +33,38 @@ agents that never set one, the project folder name is shown instead (plain text)
 
 - `+` opens the **New Sandbox** dialog.
 - An arrow next to `+` opens a dropdown with:
-  - favourites grouped into *This project* and *All projects*; clicking a favourite starts it immediately,
-    **Shift+click** (or Shift+Enter) starts it in debug shell mode; the popup shows this hint,
+  - favourites grouped into *This project* and *All projects*, each with its agent (`agent` or `agent:profile`) in
+    grey; clicking a favourite starts it (see [Starting a favourite](#starting-a-favourite)), **Shift+click** (or
+    Shift+Enter) starts it in debug shell mode; the popup shows this hint,
   - *New Sandbox…*,
   - *Edit Favourites…*.
 
 When no sandbox is running, the tool window shows an empty state: *No sandboxes are running*, a *New Sandbox…* link
-and the favourites grouped into *This project* and *All projects* (grey headers), each with its command in grey
-(`claude ./worktrees/feature`). Clicking a favourite starts it in agent mode; Debug Shell stays in the dropdown (the
+and the favourites grouped into *This project* and *All projects* (grey headers), each with its agent in grey
+(`claude`). Clicking a favourite starts it in agent mode (see [Starting a favourite](#starting-a-favourite)); Debug Shell stays in the dropdown (the
 empty state cannot see Shift). At most **5** favourites are listed (project ones first), because a bottom tool window
 is short and the empty state does not scroll; when there are more, a *More…* link opens the favourites dropdown. The
 last line is *Edit Favourites…*. When Hole cannot start (missing or too old), the favourites are grey text and the
 reason follows them. Without favourites only *New Sandbox…* and *Edit Favourites…* are shown. The empty state follows
 saved favourites at once.
+
+### Starting a favourite
+
+A favourite does not store a project path; where it runs is decided when it starts. The plugin lists the git worktrees
+of the IDE project root (`git worktree list --porcelain`, in the background, anew for every start):
+
+- **No linked worktree** – also when the project is not a git repository, `git` is missing or fails – the favourite
+  starts at once in the IDE project root (`.`).
+- **Linked worktrees** – a popup *Start '<name>' in* lists *Project root* first (selected) and, below a separator,
+  every other non-bare worktree with its branch (the folder name when detached) and its absolute path in grey; the
+  worktree the project root lies in is not listed again. Speed search filters the list. Choosing an entry starts the
+  favourite there; **Escape** cancels the start. The popup opens underneath the dropdown arrow, or in the middle of the
+  tool window for the start page.
+
+The mode is decided by the click on the favourite: a Shift+click starts the chosen location in Debug Shell (the popup
+shows *Debug Shell*), and Shift in the location popup is not read. A worktree starts at its top level, also when the
+IDE project is a sub-directory of the repository (no sub-directory mapping); *Project root* starts in `.`. Restart
+and the Docker-in-Docker toggle keep the chosen location.
 
 ### Sandbox tab body
 
@@ -157,7 +176,8 @@ Form fields:
 
 Buttons:
 
-- **Save as Favourite…** – opens *Edit Favourites* with a new favourite prefilled from the current form.
+- **Save as Favourite…** – opens *Edit Favourites* with a new favourite prefilled from the current form, except for the
+  project path, which a favourite does not store.
 - **Cancel**.
 - **Start in Debug Shell** – an alternative run, not a checkbox. It uses the same form, adds `-d`, and leaves out the
   agent arguments (Hole does not accept `-d` together with arguments after `--`).
@@ -166,12 +186,16 @@ Buttons:
 ### Edit Favourites dialog
 
 A master–detail dialog: the list of favourites on the left (grouped *This project* / *All projects*, with add,
-remove and copy actions), the same form as New Sandbox on the right, plus:
+remove and copy actions, the agent as the tooltip of a row), the same form as New Sandbox without the **Project path**
+on the right, plus:
 
 - **Name**,
-- **Stored in** – *This project* (`.idea/hole.xml`) or *All projects* (IDE application settings).
+- **Stored in** – *This project* (`.idea/hole.xml`) or *All projects* (IDE application settings), with the hint
+  *The project path is chosen at start: the project root, or a git worktree of it when there is one.*
 
-Global favourites typically use `.` as the project path, so they work in any project.
+The settings links and the command preview use the IDE project root (`.`), the location of a start without linked
+worktrees; a start in a worktree uses that worktree instead (see [Starting a favourite](#starting-a-favourite)).
+Favourites saved by older versions with a project path load without it.
 
 ### Hole settings files
 

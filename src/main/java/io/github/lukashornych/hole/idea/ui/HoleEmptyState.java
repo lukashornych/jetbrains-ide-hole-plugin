@@ -55,7 +55,14 @@ final class HoleEmptyState {
                 case FAVOURITE -> {
                     this.text.appendLine(line.text(), SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES, event -> {
                         if (line.favourite() != null) {
-                            SandboxStarter.start(this.project, line.favourite().config(), false, null);
+                            FavouriteStarter.start(this.project, line.favourite(), false,
+                                popup -> {
+                                    if (this.toolWindow.getComponent().isShowing()) {
+                                        popup.showInCenterOf(this.toolWindow.getComponent());
+                                    } else {
+                                        popup.showInFocusCenter();
+                                    }
+                                });
                         }
                     });
                     this.text.appendText("   " + line.secondary(), SimpleTextAttributes.GRAYED_ATTRIBUTES);

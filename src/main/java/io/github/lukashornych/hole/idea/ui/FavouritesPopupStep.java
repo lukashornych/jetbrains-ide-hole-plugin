@@ -2,6 +2,7 @@ package io.github.lukashornych.hole.idea.ui;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.popup.ListPopup;
 import com.intellij.openapi.ui.popup.ListPopupStepEx;
 import com.intellij.openapi.ui.popup.ListSeparator;
 import com.intellij.openapi.ui.popup.PopupStep;
@@ -17,6 +18,7 @@ import javax.swing.Icon;
 import java.awt.event.InputEvent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Items of the favourites dropdown. The modifiers of the choosing event decide the mode: with Shift the favourite
@@ -26,11 +28,19 @@ final class FavouritesPopupStep extends BaseListPopupStep<FavouritesPopupStep.It
 
     private final Project project;
     private final HoleCapability capability;
+    private final Consumer<ListPopup> placement;
 
-    FavouritesPopupStep(@NotNull Project project, @NotNull List<Favourite> favourites, @Nullable HoleCapability capability) {
+    /**
+     * @param placement shows the popup that asks for a git worktree, like the dropdown itself
+     */
+    FavouritesPopupStep(
+        @NotNull Project project, @NotNull List<Favourite> favourites, @Nullable HoleCapability capability,
+        @NotNull Consumer<ListPopup> placement
+    ) {
         super(null, items(favourites));
         this.project = project;
         this.capability = capability;
+        this.placement = placement;
     }
 
     @NotNull
@@ -54,7 +64,7 @@ final class FavouritesPopupStep extends BaseListPopupStep<FavouritesPopupStep.It
     @Override
     public @Nullable String getSecondaryTextFor(Item value) {
         return value instanceof FavouriteItem favourite
-            ? favourite.favourite().config().agentSpec() + " " + favourite.favourite().config().projectPath()
+            ? favourite.favourite().config().agentSpec()
             : null;
     }
 
@@ -117,7 +127,7 @@ final class FavouritesPopupStep extends BaseListPopupStep<FavouritesPopupStep.It
 
     private void run(@NotNull Item item, boolean debug) {
         switch (item) {
-            case FavouriteItem favourite -> SandboxStarter.start(this.project, favourite.favourite().config(), debug, null);
+            case FavouriteItem favourite -> FavouriteStarter.start(this.project, favourite.favourite(), debug, this.placement);
             case CommandItem command -> {
                 if (command.command() == Command.NEW_SANDBOX) {
                     NewSandboxAction.showDialog(this.project);

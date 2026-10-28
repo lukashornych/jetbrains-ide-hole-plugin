@@ -32,6 +32,8 @@ filename date that disagrees with `date:`.
 
 <!-- ADR-INDEX:START -->
 
-*No decision records yet.*
+| Date | Record | Kind | Status | Refs |
+|------|--------|------|--------|------|
+| 2026-10-28 | [Favourites store no project path; the project root or a git worktree is chosen at start](2026-10-28-favourite-project-path-chosen-at-start.md) | feature | accepted | — |
 
 <!-- ADR-INDEX:END -->

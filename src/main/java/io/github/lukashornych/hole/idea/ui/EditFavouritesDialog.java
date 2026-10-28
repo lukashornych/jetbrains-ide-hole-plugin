@@ -71,7 +71,7 @@ public final class EditFavouritesDialog extends DialogWrapper {
         for (Favourite favourite : GlobalFavouritesService.all(project)) {
             this.model.add(new Entry(favourite));
         }
-        this.form = new SandboxForm(project, SandboxSessionManager.getInstance(project).projectRoot(), getDisposable(), () -> { });
+        this.form = new SandboxForm(project, SandboxSessionManager.getInstance(project).projectRoot(), false, getDisposable(), () -> { });
         final Entry added = toAdd == null ? null : new Entry(toAdd);
         if (added != null) {
             this.model.add(added);
@@ -157,7 +157,7 @@ public final class EditFavouritesDialog extends DialogWrapper {
             }
         });
 
-        final JBLabel hint = new JBLabel("Global favourites typically use . as the project path, so they work in any project.");
+        final JBLabel hint = new JBLabel("The project path is chosen at start: the project root, or a git worktree of it when there is one.");
         hint.setForeground(UIUtil.getContextHelpForeground());
         this.detail = new JPanel(new BorderLayout());
         this.detail.add(FormBuilder.createFormBuilder()
@@ -220,8 +220,8 @@ public final class EditFavouritesDialog extends DialogWrapper {
 
     /**
      * Returns the index of the first favourite with a problem that can be found without file access (blank name,
-     * invalid agent or profile name, unexpanded `~user` path), or -1 when all are valid. Path existence is checked
-     * only for the selected favourite, by its form.
+     * invalid agent or profile name), or -1 when all are valid. Library paths are checked only for the selected
+     * favourite, by its form.
      */
     static int firstInvalid(@NotNull List<Favourite> favourites) {
         for (int i = 0; i < favourites.size(); i++) {
@@ -336,7 +336,7 @@ public final class EditFavouritesDialog extends DialogWrapper {
             this.caption.setText(text == null ? "" : text);
             this.caption.setVisible(text != null);
             this.panel.add(this.row.getListCellRendererComponent(list, value, index, selected, hasFocus), BorderLayout.CENTER);
-            this.panel.setToolTipText(value.config.agentSpec() + " " + value.config.projectPath());
+            this.panel.setToolTipText(value.config.agentSpec());
             return this.panel;
         }
     }

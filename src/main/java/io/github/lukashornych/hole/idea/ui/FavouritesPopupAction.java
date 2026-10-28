@@ -41,7 +41,8 @@ final class FavouritesPopupAction extends DumbAwareAction {
         }
         final Component component = e.getInputEvent() == null ? null : e.getInputEvent().getComponent();
         show(project, popup -> {
-            if (component != null) {
+            // also places the worktree popup, which may come up to 10 s later (`git worktree list`)
+            if (component != null && component.isShowing()) {
                 popup.showUnderneathOf(component);
             } else {
                 popup.showInFocusCenter();
@@ -58,7 +59,7 @@ final class FavouritesPopupAction extends DumbAwareAction {
     static void show(@NotNull Project project, @NotNull Consumer<ListPopup> placement) {
         // non-blocking: the start probes again and reports a missing or old Hole itself
         final HoleCapability capability = HoleExecutable.getInstance().lastCapability();
-        final FavouritesPopupStep step = new FavouritesPopupStep(project, GlobalFavouritesService.all(project), capability);
+        final FavouritesPopupStep step = new FavouritesPopupStep(project, GlobalFavouritesService.all(project), capability, placement);
         final ListPopup popup = JBPopupFactory.getInstance().createListPopup(step);
         popup.setAdText(capability != null && !capability.canStart() ? capability.message() : DEBUG_HINT, SwingConstants.LEFT);
         // public ListPopup API only: Shift+Enter chooses like a Shift+click, the step reads the Shift modifier

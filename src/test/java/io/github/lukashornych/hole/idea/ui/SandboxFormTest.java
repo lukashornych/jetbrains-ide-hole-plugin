@@ -1,5 +1,6 @@
 package io.github.lukashornych.hole.idea.ui;
 
+import io.github.lukashornych.hole.idea.model.SandboxConfig;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.DefaultComboBoxModel;
@@ -11,7 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The combo suggestions are replaced only when they changed: the debounced checks run after every keystroke, and a
- * new model closes the dropdown and resets the caret.
+ * new model closes the dropdown and resets the caret. Without an editable project path (Edit Favourites) the
+ * configuration has `.` and no project path problems.
  */
 class SandboxFormTest {
 
@@ -34,5 +36,30 @@ class SandboxFormTest {
     void itemsOfModel() {
         assertEquals(List.of("a", "b"), SandboxForm.items(new DefaultComboBoxModel<>(new String[]{"a", "b"})));
         assertEquals(List.of(), SandboxForm.items(new DefaultComboBoxModel<>()));
+    }
+
+    @Test
+    void editableProjectPathIsNormalised() {
+        assertEquals("/home/user/work", SandboxForm.projectPath(true, " ~/work ", "/home/user"));
+        assertEquals("../other", SandboxForm.projectPath(true, "../other", "/home/user"));
+    }
+
+    @Test
+    void notEditableProjectPathIsTheProjectRoot() {
+        assertEquals(".", SandboxForm.projectPath(false, "../other", "/home/user"));
+        assertEquals(".", SandboxForm.projectPath(false, "", "/home/user"));
+    }
+
+    @Test
+    void projectPathProblemsOnlyWhenEditable() {
+        final SandboxConfig config = SandboxConfig.defaults().withProjectPath("~bob/work").withAgent("");
+        assertEquals(
+            List.of(SandboxFormValidator.Field.AGENT, SandboxFormValidator.Field.PROJECT_PATH),
+            SandboxForm.problems(true, config, null).stream().map(SandboxFormValidator.Problem::field).toList()
+        );
+        assertEquals(
+            List.of(SandboxFormValidator.Field.AGENT),
+            SandboxForm.problems(false, config, null).stream().map(SandboxFormValidator.Problem::field).toList()
+        );
     }
 }

@@ -30,7 +30,7 @@ All packages below are under `io.github.lukashornych.hole.idea`.
 | `hole` | One client per Hole command (`HoleListClient`, `HoleSettingsClient`, `HoleModifyClient`) with its parser; `HoleExecutable` locates and probes `hole`; `HoleCommandBuilder` builds every argument list; `InstanceIdGenerator`; `MetadataPoller`. |
 | `session` | The lifecycle of one sandbox (`SandboxSession`) and of all sandboxes of a project (`SandboxSessionManager`); the pty (`HoleTerminalRunner`, `HoleTtyConnector`); process-group signals (`ProcessSignaller`); image paste folders (`PasteDirectory`, `PasteStore`). |
 | `storage` | `PersistentStateComponent` services: plugin settings and favourites of both scopes. Null handling of persisted state lives here. |
-| `ui` | Tool window, sandbox tabs and their header, New Sandbox / Edit Favourites dialogs with the shared `SandboxForm`, settings page, notifications, terminal path links and image paste key handling. |
+| `ui` | Tool window, sandbox tabs and their header, New Sandbox / Edit Favourites dialogs with the shared `SandboxForm`, favourite starts (`FavouriteStarter`: project root or a git worktree from `StartLocations`), settings page, notifications, terminal path links and image paste key handling. |
 | `ui/network` | The runtime Network window over `hole modify`. |
 | `model`, `git` | Immutable value records (`SandboxConfig`, `Favourite`, `InstanceInfo`, …) and `git worktree list --porcelain` parsing. |
 
@@ -132,8 +132,10 @@ newer Hole does not break the plugin.
 | Favourites of *This project* | `.idea/hole.xml`, shareable through version control | `ProjectFavouritesService` |
 
 Persisted beans (`FavouriteBean`, `FavouritesState`) are mutable with no-arg constructors, as the XML serializer
-requires, and convert to and from the immutable `model` records. Saving favourites publishes `FavouritesListener` on
-the application message bus, because favourites of *All projects* change the empty state of every open project.
+requires, and convert to and from the immutable `model` records. A favourite has no project path (`Favourite`
+normalises its config to `.`); the `projectPath` option written by older versions is ignored on load. Saving
+favourites publishes `FavouritesListener` on the application message bus, because favourites of *All projects* change
+the empty state of every open project.
 
 ## Threading
 
@@ -154,6 +156,7 @@ The UI is split into a Swing-free model and a thin Swing part, so the logic is t
 | `EmptyStateModel` | `HoleEmptyState` |
 | `SessionPresentation` (tab texts) | `HoleToolWindowView` |
 | `SandboxFormValidator`, `FormChecks` | `SandboxForm` |
+| `StartLocations` | `FavouriteStarter` |
 | `SettingsFileResolver` (question as a callback) | `SettingsFileOpener`, `SettingsFileLinks` |
 | `BlockedSuggestions` | `NetworkDialog`, `EntryInputDialog` |
 

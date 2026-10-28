@@ -33,12 +33,16 @@ class EditFavouritesDialogTest {
     }
 
     @Test
-    void invalidAgentAndUnexpandedHomeAreFound() {
+    void invalidAgentIsFound() {
         final Favourite badAgent = new Favourite("Agent", FavouriteScope.PROJECT, SandboxConfig.defaults().withAgent(""));
-        final SandboxConfig tilde = new SandboxConfig("claude", "", "~bob/work", false, false, false, false, false, false, true, List.of(), "");
-        final Favourite otherHome = new Favourite("Tilde", FavouriteScope.PROJECT, tilde);
         assertEquals(0, EditFavouritesDialog.firstInvalid(List.of(badAgent, VALID)));
-        assertEquals(1, EditFavouritesDialog.firstInvalid(List.of(VALID, otherHome)));
+    }
+
+    @Test
+    void storedProjectPathCannotMakeAFavouriteInvalid() {
+        // a favourite has no project path: a `~user` path that the validator rejects is dropped with it
+        final SandboxConfig tilde = SandboxConfig.defaults().withProjectPath("~bob/work");
+        assertEquals(-1, EditFavouritesDialog.firstInvalid(List.of(new Favourite("Tilde", FavouriteScope.PROJECT, tilde))));
     }
 
     @Test

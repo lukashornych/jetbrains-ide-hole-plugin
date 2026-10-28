@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class EmptyStateModelTest {
 
     private static final Favourite TESTS = new Favourite("acme tests", FavouriteScope.PROJECT,
-        SandboxConfig.defaults().withProjectPath("./worktrees/feature"));
+        SandboxConfig.defaults().withProfile("research"));
     private static final Favourite CLAUDE = new Favourite("Claude here", FavouriteScope.GLOBAL, SandboxConfig.defaults());
     private static final Favourite GEMINI = new Favourite("Gemini", FavouriteScope.GLOBAL, SandboxConfig.defaults().withAgent("gemini"));
 
@@ -33,12 +33,19 @@ class EmptyStateModelTest {
             "NEW_SANDBOX New Sandbox…",
             "GAP ",
             "HEADER This project",
-            "FAVOURITE acme tests | claude ./worktrees/feature",
+            "FAVOURITE acme tests | claude:research",
             "HEADER All projects",
-            "FAVOURITE Claude here | claude .",
-            "FAVOURITE Gemini | gemini .",
+            "FAVOURITE Claude here | claude",
+            "FAVOURITE Gemini | gemini",
             "EDIT_FAVOURITES Edit Favourites…"
         ), lines(EmptyStateModel.of(List.of(CLAUDE, TESTS, GEMINI), null)));
+    }
+
+    @Test
+    void secondaryTextIsTheAgentOnly() {
+        // the project path is chosen at start, so it is not shown
+        final Favourite stored = CLAUDE.withConfig(CLAUDE.config().withProjectPath("/work/acme-cms-worktree"));
+        assertEquals("FAVOURITE Claude here | claude", lines(EmptyStateModel.of(List.of(stored), null)).get(4));
     }
 
     @Test
@@ -50,8 +57,8 @@ class EmptyStateModelTest {
         many.add(TESTS);
         final List<String> lines = lines(EmptyStateModel.of(many, null));
         assertEquals(EmptyStateModel.LIMIT, lines.stream().filter(line -> line.startsWith("FAVOURITE ")).count());
-        assertEquals("FAVOURITE acme tests | claude ./worktrees/feature", lines.get(4), "the project favourite is kept");
-        assertEquals("FAVOURITE Global 4 | claude .", lines.get(lines.size() - 2));
+        assertEquals("FAVOURITE acme tests | claude:research", lines.get(4), "the project favourite is kept");
+        assertEquals("FAVOURITE Global 4 | claude", lines.get(lines.size() - 2));
         assertEquals("MORE_AND_EDIT Edit Favourites…", lines.get(lines.size() - 1));
     }
 
@@ -74,7 +81,7 @@ class EmptyStateModelTest {
             "NEW_SANDBOX New Sandbox…",
             "GAP ",
             "HEADER This project",
-            "DISABLED_FAVOURITE acme tests | claude ./worktrees/feature",
+            "DISABLED_FAVOURITE acme tests | claude:research",
             "CAPABILITY Hole was not found",
             "EDIT_FAVOURITES Edit Favourites…"
         ), lines);

@@ -53,8 +53,9 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 /**
- * The sandbox form shared by <i>New Sandbox</i> and <i>Edit Favourites</i>: agent, profile, project path, settings
- * links, sandbox options, libraries, agent arguments and the live command preview for Start and Debug.
+ * The sandbox form shared by <i>New Sandbox</i> and <i>Edit Favourites</i>: agent, profile, project path (New Sandbox
+ * only; a favourite chooses it at start), settings links, sandbox options, libraries, agent arguments and the live
+ * command preview for Start and Debug.
  *
  * <p>Everything that touches the file system (settings links, agent/profile suggestions, path and library checks)
  * runs debounced on a pooled thread; the results are applied on the EDT and feed {@link #validate()}.</p>
@@ -67,6 +68,7 @@ final class SandboxForm implements Disposable {
 
     private final Project project;
     private final Path projectRoot;
+    private final boolean projectPathEditable;
     private final Runnable onChange;
     private final Supplier<Map<String, String>> environment = CliRunner.SHELL_ENVIRONMENT;
     private final HoleSettingsLocator locator = new HoleSettingsLocator(this.environment);
@@ -103,13 +105,18 @@ final class SandboxForm implements Disposable {
 
     /**
      * @param project     current project
-     * @param projectRoot IDE project root, against which relative paths are checked
-     * @param parent      disposes the form
-     * @param onChange    called on the EDT after every change of a value or of the background checks
+     * @param projectRoot         IDE project root, against which relative paths are checked
+     * @param projectPathEditable shows the project path; without it the configuration always has `.`
+     * @param parent              disposes the form
+     * @param onChange            called on the EDT after every change of a value or of the background checks
      */
-    SandboxForm(@NotNull Project project, @NotNull Path projectRoot, @NotNull Disposable parent, @NotNull Runnable onChange) {
+    SandboxForm(
+        @NotNull Project project, @NotNull Path projectRoot, boolean projectPathEditable, @NotNull Disposable parent,
+        @NotNull Runnable onChange
+    ) {
         this.project = project;
         this.projectRoot = projectRoot;
+        this.projectPathEditable = projectPathEditable;
         this.onChange = onChange;
         Disposer.register(parent, this);
         this.checkAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, this);
@@ -153,11 +160,14 @@ final class SandboxForm implements Disposable {
         addPreviewRow(previewPanel, 0, "Start", this.startPreview);
         addPreviewRow(previewPanel, 1, "Debug", this.debugPreview);
 
-        this.panel = FormBuilder.createFormBuilder()
+        final FormBuilder builder = FormBuilder.createFormBuilder()
             .addLabeledComponent("Agent:", this.agent)
-            .addLabeledComponent("Profile:", this.profile)
-            .addLabeledComponent("Project path:", this.path)
-            .addComponentToRightColumn(hint("<html><code>.</code> is the IDE project root. Type any absolute path, or pick a git worktree.</html>"))
+            .addLabeledComponent("Profile:", this.profile);
+        if (projectPathEditable) {
+            builder.addLabeledComponent("Project path:", this.path)
+                .addComponentToRightColumn(hint("<html><code>.</code> is the IDE project root. Type any absolute path, or pick a git worktree.</html>"));
+        }
+        this.panel = builder
             .addLabeledComponent("Hole settings:", this.links)
             .addComponent(new TitledSeparator("Sandbox"))
             .addComponent(options)
@@ -182,7 +192,9 @@ final class SandboxForm implements Disposable {
         this.path.editor().getDocument().addDocumentListener(documentListener);
         this.agentArgs.getDocument().addDocumentListener(documentListener);
 
-        this.path.loadWorktrees(this);
+        if (projectPathEditable) {
+            this.path.loadWorktrees(this);
+        }
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             final String located = HoleExecutable.getInstance().locate().map(Path::toString).orElse(HOLE);
             final String shellHome = this.environment.get().get("HOME");
@@ -243,7 +255,7 @@ final class SandboxForm implements Disposable {
 
     /**
      * Returns the configuration: values trimmed, `~` in the project path expanded (Hole gets the path without a
-     * shell), blank library rows left out.
+     * shell), `.` when the project path is not editable, blank library rows left out.
      */
     @NotNull
     SandboxConfig getConfig() {
@@ -254,7 +266,7 @@ final class SandboxForm implements Disposable {
         return new SandboxConfig(
             text(this.agent).trim(),
             text(this.profile).trim(),
-            SandboxFormValidator.normalizeProjectPath(this.path.getText(), this.home),
+            projectPath(this.projectPathEditable, this.path.getText(), this.home),
             this.withDocker.isSelected(),
             this.unrestricted.isSelected(),
             this.trustProject.isSelected(),
@@ -283,7 +295,7 @@ final class SandboxForm implements Disposable {
         final SandboxConfig config = getConfig();
         final List<ValidationInfo> result = new ArrayList<>();
         final List<Library> libs = config.libraries();
-        for (SandboxFormValidator.Problem problem : SandboxFormValidator.validate(config, this.checks)) {
+        for (SandboxFormValidator.Problem problem : problems(this.projectPathEditable, config, this.checks)) {
             final JComponent component = switch (problem.field()) {
                 case AGENT -> this.agent;
                 case PROFILE -> this.profile;
@@ -295,6 +307,25 @@ final class SandboxForm implements Disposable {
             result.add(new ValidationInfo(problem.message(), component));
         }
         return result;
+    }
+
+    /**
+     * Returns the project path of the configuration: the normalised typed one, or `.` when it is not editable.
+     */
+    @NotNull
+    static String projectPath(boolean editable, @NotNull String typed, @NotNull String home) {
+        return editable ? SandboxFormValidator.normalizeProjectPath(typed, home) : SandboxConfig.DEFAULT_PROJECT_PATH;
+    }
+
+    /**
+     * Returns the validation problems; project path problems only when the path is editable (the field is not shown
+     * otherwise).
+     */
+    @NotNull
+    static List<SandboxFormValidator.Problem> problems(boolean editable, @NotNull SandboxConfig config, @Nullable FormChecks checks) {
+        return SandboxFormValidator.validate(config, checks).stream()
+            .filter(problem -> editable || problem.field() != SandboxFormValidator.Field.PROJECT_PATH)
+            .toList();
     }
 
     @Override

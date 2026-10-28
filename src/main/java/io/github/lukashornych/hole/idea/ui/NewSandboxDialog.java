@@ -55,7 +55,7 @@ public final class NewSandboxDialog extends DialogWrapper {
         this.project = project;
         setTitle("New Sandbox");
         setOKButtonText("Start");
-        this.form = new SandboxForm(project, SandboxSessionManager.getInstance(project).projectRoot(), getDisposable(), () -> { });
+        this.form = new SandboxForm(project, SandboxSessionManager.getInstance(project).projectRoot(), true, getDisposable(), () -> { });
         this.form.setConfig(SandboxConfig.defaults());
         this.form.setPreviewInstanceId(this.instanceId);
         init();
