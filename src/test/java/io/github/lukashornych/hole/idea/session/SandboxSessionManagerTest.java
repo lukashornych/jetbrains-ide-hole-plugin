@@ -69,7 +69,7 @@ class SandboxSessionManagerTest {
         this.capability = executable::probe;
         final SessionServices services = new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            new io.github.lukashornych.hole.idea.hole.InstanceIdGenerator()::generate, Clock.systemUTC(), this.background
+            new io.github.lukashornych.hole.idea.hole.InstanceIdGenerator()::generate, Clock.systemUTC(), this.background, PasteDirectory.disabled()
         );
         this.manager = new SandboxSessionManager(
             this.project, () -> this.capability.get(), this.hole::environment, services, this.ui, this.notifier

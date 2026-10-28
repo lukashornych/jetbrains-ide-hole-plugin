@@ -35,7 +35,7 @@ class EditFavouritesDialogTest {
     @Test
     void invalidAgentAndUnexpandedHomeAreFound() {
         final Favourite badAgent = new Favourite("Agent", FavouriteScope.PROJECT, SandboxConfig.defaults().withAgent(""));
-        final SandboxConfig tilde = new SandboxConfig("claude", "", "~bob/work", false, false, false, false, false, false, List.of(), "");
+        final SandboxConfig tilde = new SandboxConfig("claude", "", "~bob/work", false, false, false, false, false, false, true, List.of(), "");
         final Favourite otherHome = new Favourite("Tilde", FavouriteScope.PROJECT, tilde);
         assertEquals(0, EditFavouritesDialog.firstInvalid(List.of(badAgent, VALID)));
         assertEquals(1, EditFavouritesDialog.firstInvalid(List.of(VALID, otherHome)));

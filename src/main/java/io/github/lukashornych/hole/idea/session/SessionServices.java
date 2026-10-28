@@ -20,6 +20,7 @@ import java.util.function.Supplier;
  * @param instanceIds  generates instance IDs (for the retry after a duplicate ID)
  * @param clock        time source for the stopping timer
  * @param background   runs blocking work such as waiting for the end of the output
+ * @param pastes       creates and deletes the paste directories of the image paste
  */
 public record SessionServices(
     @NotNull HoleTerminalRunner runner,
@@ -27,7 +28,8 @@ public record SessionServices(
     @NotNull MetadataSource metadata,
     @NotNull Supplier<String> instanceIds,
     @NotNull Clock clock,
-    @NotNull Executor background
+    @NotNull Executor background,
+    @NotNull PasteDirectory pastes
 ) {
 
     public SessionServices {
@@ -37,6 +39,7 @@ public record SessionServices(
         Objects.requireNonNull(instanceIds, "instanceIds");
         Objects.requireNonNull(clock, "clock");
         Objects.requireNonNull(background, "background");
+        Objects.requireNonNull(pastes, "pastes");
     }
 
     /**
@@ -51,7 +54,8 @@ public record SessionServices(
             MetadataSource.of(MetadataPoller.getInstance()),
             generator::generate,
             Clock.systemUTC(),
-            AppExecutorUtil.getAppExecutorService()
+            AppExecutorUtil.getAppExecutorService(),
+            PasteDirectory.platform()
         );
     }
 }

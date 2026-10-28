@@ -30,6 +30,7 @@ import io.github.lukashornych.hole.idea.hole.HoleSettingsLocator;
 import io.github.lukashornych.hole.idea.model.Library;
 import io.github.lukashornych.hole.idea.model.SandboxConfig;
 import io.github.lukashornych.hole.idea.process.CliRunner;
+import io.github.lukashornych.hole.idea.session.PasteDirectory;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -62,6 +63,7 @@ final class SandboxForm implements Disposable {
 
     private static final int CHECK_DELAY_MS = 300;
     private static final String HOLE = "hole";
+    private static final PasteDirectory PASTE_DIRECTORY = PasteDirectory.platform();
 
     private final Project project;
     private final Path projectRoot;
@@ -80,6 +82,7 @@ final class SandboxForm implements Disposable {
     private final JBCheckBox dumpNetwork = option("Log network access on exit", "-n");
     private final JBCheckBox rebuild = option("Rebuild images", "-r");
     private final JBCheckBox updateAgents = option("Update agents before start", "--update-agents");
+    private final JBCheckBox imagePaste = option("Image paste", HoleCommandBuilder.PASTE_MOUNT);
     private final JPanel libraryRows = new JPanel();
     private final List<LibraryRow> libraries = new ArrayList<>();
     private final JBTextField agentArgs = new JBTextField();
@@ -126,7 +129,13 @@ final class SandboxForm implements Disposable {
 
         final JPanel options = new JPanel(new GridLayout(0, 3, JBUI.scale(18), JBUI.scale(4)));
         options.setOpaque(false);
-        for (JBCheckBox box : List.of(this.withDocker, this.unrestricted, this.trustProject, this.dumpNetwork, this.rebuild, this.updateAgents)) {
+        // not a Hole flag: the tooltip names the library the plugin adds
+        this.imagePaste.setToolTipText("<html>Mounts a read-only folder for pasted images at <code>"
+            + HoleCommandBuilder.PASTE_MOUNT + "</code> (<code>--library " + PasteDirectory.DISPLAY_ROOT + "/ID:"
+            + HoleCommandBuilder.PASTE_MOUNT + "</code>), so Cmd+V / Ctrl+V with an image on the clipboard pastes its "
+            + "path. Pasted images stay on disk until the sandbox ends.<br>With a global <code>files.exclude</code>, "
+            + "Hole warns about entries that match nothing in this folder at every start.</html>");
+        for (JBCheckBox box : List.of(this.withDocker, this.unrestricted, this.trustProject, this.dumpNetwork, this.rebuild, this.updateAgents, this.imagePaste)) {
             options.add(box);
             box.addItemListener(event -> changed());
         }
@@ -220,6 +229,7 @@ final class SandboxForm implements Disposable {
             this.dumpNetwork.setSelected(config.dumpNetworkAccess());
             this.rebuild.setSelected(config.rebuild());
             this.updateAgents.setSelected(config.updateAgents());
+            this.imagePaste.setSelected(config.imagePaste());
             for (LibraryRow row : List.copyOf(this.libraries)) {
                 removeLibraryRow(row);
             }
@@ -251,6 +261,7 @@ final class SandboxForm implements Disposable {
             this.dumpNetwork.isSelected(),
             this.rebuild.isSelected(),
             this.updateAgents.isSelected(),
+            this.imagePaste.isSelected(),
             libs,
             this.agentArgs.getText()
         );
@@ -302,10 +313,23 @@ final class SandboxForm implements Disposable {
 
     private void updatePreview() {
         final SandboxConfig config = getConfig();
-        this.startPreview.setText(command(() -> HoleCommandBuilder.start(this.executable, config, this.previewInstanceId)));
-        this.debugPreview.setText(command(() -> HoleCommandBuilder.debug(this.executable, config, this.previewInstanceId)));
+        final String paste = previewPasteDirectory(config);
+        this.startPreview.setText(command(() -> HoleCommandBuilder.start(this.executable, config, this.previewInstanceId, paste)));
+        this.debugPreview.setText(command(() -> HoleCommandBuilder.debug(this.executable, config, this.previewInstanceId, paste)));
         this.startPreview.setCaretPosition(0);
         this.debugPreview.setCaretPosition(0);
+    }
+
+    /**
+     * Returns the paste directory as the preview shows it (`~/.hole/idea-paste/<ID>`), {@code null} when the sandbox
+     * starts without it.
+     */
+    @Nullable
+    private String previewPasteDirectory(@NotNull SandboxConfig config) {
+        final Path directory = PASTE_DIRECTORY.pathFor(this.previewInstanceId);
+        return config.imagePaste() && directory != null && PasteDirectory.isUsable(directory)
+            ? PasteDirectory.DISPLAY_ROOT + "/" + this.previewInstanceId
+            : null;
     }
 
     @NotNull

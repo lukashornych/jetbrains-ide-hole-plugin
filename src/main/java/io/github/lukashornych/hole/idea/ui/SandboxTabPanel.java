@@ -34,7 +34,8 @@ import java.time.Instant;
  * the Terminal plugin's {@code ShellTerminalWidget}, whose shell-command tracking can consume Enter and refreshes the
  * VFS after every Enter. The agent's OSC 0/2 title is read through jediterm's application title listener,
  * independent of the IDE's title tracking settings. File paths in the output are linked by {@link SandboxPathFilter},
- * as the Terminal plugin's own path filter is not available to a plain widget.</p>
+ * as the Terminal plugin's own path filter is not available to a plain widget. {@link ImagePasteHandler} turns a
+ * paste of a clipboard image into the path of the saved image.</p>
  *
  * <p>The header is re-rendered only when its {@link HeaderModel} changed; the 1 s timer (stopping / restarting timer,
  * Force Stop after 30 s) does nothing once the sandbox is no longer alive.</p>
@@ -228,9 +229,12 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
     }
 
     private void createWidget() {
-        this.widget = new JBTerminalWidget(this.project, new JBTerminalSystemSettingsProvider(), this.parent);
+        final JBTerminalSystemSettingsProvider settings = new JBTerminalSystemSettingsProvider();
+        this.widget = new JBTerminalWidget(this.project, settings, this.parent);
         this.widget.getTerminal().addApplicationTitleListener(this.session::setAgentTitle);
         this.widget.addMessageFilter(new SandboxPathFilter(this.project, this.session.launch().projectDirectory()));
+        new ImagePasteHandler(this.widget, settings, ImagePasteHandler.Target.of(this.session),
+            new HoleNotifications(this.project)::imagePasteFailed).install();
         add(this.widget.getComponent(), BorderLayout.CENTER);
         this.widget.start(this.session.createConnector());
         revalidate();

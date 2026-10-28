@@ -17,17 +17,20 @@ import java.util.List;
  * <p>`hole start` has the shape (flag order as in the design mockup):</p>
  * <pre>
  * hole start agent[:profile] path [-d] [-n] [-r] [--update-agents] [-u] [--with-docker] [--trust-project]
- *      [--library PATH[:rw]]... --instance-id ID [-- agent args...]
+ *      [--library PATH[:rw]]... [--library PASTE_DIR:/tmp/hole-idea-paste] --instance-id ID [-- agent args...]
  * </pre>
  *
  * <p>The project path is passed verbatim, so `.` stays `.` and is resolved by Hole against the working directory
  * (the IDE project root). The debug variant adds `-d` and leaves out the agent arguments, because Hole refuses `-d`
- * together with arguments after `--`.</p>
+ * together with arguments after `--`. The paste directory of the image paste is mounted read-only after the user's
+ * libraries; the builder only formats it, creating it is up to the caller.</p>
  */
 public final class HoleCommandBuilder {
 
     /** Separator after which Hole passes all arguments to the agent. */
     public static final String AGENT_ARGS_SEPARATOR = "--";
+    /** Container path of the paste directory: short, no spaces, and it does not reveal the host home path. */
+    public static final String PASTE_MOUNT = "/tmp/hole-idea-paste";
 
     private HoleCommandBuilder() {
     }
@@ -42,7 +45,23 @@ public final class HoleCommandBuilder {
      */
     @NotNull
     public static List<String> start(@NotNull String executable, @NotNull SandboxConfig config, @NotNull String instanceId) {
-        return buildStart(executable, config, instanceId, false);
+        return start(executable, config, instanceId, null);
+    }
+
+    /**
+     * Returns the `hole start` command that runs the agent, with the paste directory mounted.
+     *
+     * @param executable     path of the `hole` binary (first element of the list)
+     * @param config         sandbox configuration
+     * @param instanceId     instance ID chosen by the plugin
+     * @param pasteDirectory host directory mounted read-only at {@link #PASTE_MOUNT}, {@code null} for none
+     * @throws IllegalArgumentException when the agent is blank or the instance ID is malformed
+     */
+    @NotNull
+    public static List<String> start(
+        @NotNull String executable, @NotNull SandboxConfig config, @NotNull String instanceId, @Nullable String pasteDirectory
+    ) {
+        return buildStart(executable, config, instanceId, pasteDirectory, false);
     }
 
     /**
@@ -55,7 +74,23 @@ public final class HoleCommandBuilder {
      */
     @NotNull
     public static List<String> debug(@NotNull String executable, @NotNull SandboxConfig config, @NotNull String instanceId) {
-        return buildStart(executable, config, instanceId, true);
+        return debug(executable, config, instanceId, null);
+    }
+
+    /**
+     * Returns the `hole start -d` command with the paste directory mounted. Agent arguments are left out.
+     *
+     * @param executable     path of the `hole` binary (first element of the list)
+     * @param config         sandbox configuration
+     * @param instanceId     instance ID chosen by the plugin
+     * @param pasteDirectory host directory mounted read-only at {@link #PASTE_MOUNT}, {@code null} for none
+     * @throws IllegalArgumentException when the agent is blank or the instance ID is malformed
+     */
+    @NotNull
+    public static List<String> debug(
+        @NotNull String executable, @NotNull SandboxConfig config, @NotNull String instanceId, @Nullable String pasteDirectory
+    ) {
+        return buildStart(executable, config, instanceId, pasteDirectory, true);
     }
 
     /**
@@ -228,6 +263,7 @@ public final class HoleCommandBuilder {
         @NotNull String executable,
         @NotNull SandboxConfig config,
         @NotNull String instanceId,
+        @Nullable String pasteDirectory,
         boolean debug
     ) {
         if (config.agent().isBlank()) {
@@ -270,6 +306,11 @@ public final class HoleCommandBuilder {
                 command.add("--library");
                 command.add(library.toArgument());
             }
+        }
+        if (pasteDirectory != null) {
+            // no `:rw`: the sandbox only reads the pasted images
+            command.add("--library");
+            command.add(pasteDirectory + ":" + PASTE_MOUNT);
         }
         command.add("--instance-id");
         command.add(instanceId);

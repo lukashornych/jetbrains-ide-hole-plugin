@@ -20,6 +20,8 @@
 #   FAKE_HOLE_RUNNING_AFTER=S   seconds `start` stays in status `starting` (default 1)
 #   FAKE_HOLE_EXIT_AFTER=S      `start` ends by itself after S seconds with exit code 0 (like `/exit`)
 #   FAKE_HOLE_LIST_DELAY=S      `list` sleeps S seconds before answering (concurrency tests)
+#   FAKE_HOLE_REQUIRE_LIBRARIES=1  `start` fails when the host directory of a `--library PATH[:MOUNT][:rw]` is
+#                               missing (Hole only warns), so a test sees that the directory existed at the start
 #   FAKE_HOLE_VERSION=TEXT      what `version` prints (default `hole 2.6.0`, `hole 2.5.0` in old mode)
 #   FAKE_HOLE_VERSION_EXIT=N    `version` exits with N (default 0)
 #   FAKE_HOLE_VERSION_DELAY=S   `version` sleeps S seconds before answering (concurrency tests)
@@ -211,7 +213,13 @@ cmd_start() {
             -n|--dump-network-access) dump=true ;;
             --with-docker) with_docker=true ;;
             --trust-project|--update-agents) ;;
-            --library) shift ;;
+            --library)
+                shift
+                library="${1:-}"
+                if [ "${FAKE_HOLE_REQUIRE_LIBRARIES:-}" = "1" ] && [ ! -d "${library%%:*}" ]; then
+                    error "library '${library%%:*}' does not exist"
+                    exit 1
+                fi ;;
             --instance-id)
                 if [ "$mode" = "old" ]; then error "unknown option '$1'; run 'hole help' for usage"; exit 1; fi
                 shift; id="${1:-}" ;;

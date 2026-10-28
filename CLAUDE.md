@@ -31,7 +31,8 @@ Inside a Hole sandbox, the hosts listed in `.hole/settings.json` must be allowed
 - `hole` — Hole CLI clients (`version`, `list --json`, `settings get|create`, `modify`), settings file resolver,
   command builder, metadata poller.
 - `process` — plain CLI runner and executable lookup.
-- `session` — sandbox lifecycle: PTY process (pty4j), signals to the process group, terminal connector.
+- `session` — sandbox lifecycle: PTY process (pty4j), signals to the process group, terminal connector, image paste
+  directories (`PasteDirectory`, `PasteStore`).
 - `storage` — persisted settings and favourites (application and project level).
 - `ui` — tool window (incl. the favourites start page), sandbox tabs, dialogs, settings page; `ui/network` — the
   runtime network window.

@@ -107,6 +107,29 @@ Hole's message; anything else → Hole's message.
 Hole's own interactive prompts (e.g. `Update agents now? [Y/n/s]`, project trust) are left in the terminal for the
 user to answer. The plugin does not intercept them.
 
+### Image paste
+
+An agent in the sandbox cannot read the host clipboard, and the terminal pastes text only. So in a sandbox tab,
+**`Cmd+V`** (the terminal's paste shortcut; on other systems its shortcuts, e.g. `Ctrl+Shift+V`, `Shift+Insert`) and
+**`Ctrl+V`** on every system, pressed with an **image on the clipboard**, save the image as PNG into the sandbox's paste folder and type its
+container path into the terminal as a bracketed paste (`ESC[200~/tmp/hole-idea-paste/20261027-101503-1.png ESC[201~`,
+no Enter); Claude Code turns it into `[Image #1]`. Without bracketed paste mode (e.g. a debug shell) the path is typed
+plain. With text on the clipboard both keys behave as before. When the clipboard holds both an image and text (e.g.
+cells copied from a spreadsheet on macOS), the image wins, so screenshot tools that also put a file name there work. Only a key press in the IDE reaches the clipboard;
+nothing inside the sandbox can trigger it.
+
+- **Paste folder**: `~/.hole/idea-paste/<instance ID>/` (the parent is private, `0700`), mounted read-only with
+  `--library ~/.hole/idea-paste/<ID>:/tmp/hole-idea-paste` after the user's libraries; the command preview shows it.
+  It is created before every `hole start` (also the duplicate-ID retry and a restart, which get a new folder) and
+  deleted when the process has exited. Folders left behind (project closed, IDE killed) are removed when the plugin
+  first needs a project's sandbox manager (tool window, New Sandbox): those not of a running instance in
+  `hole list --json` and older than 10 minutes.
+- **Off**: when *Image paste* is unticked, the folder path contains `:` or `$` (Hole cannot mount it), or it cannot be
+  created, the sandbox starts without the mount; a paste of an image then tells the user why, once per sandbox.
+- **Limits**: one clipboard image per paste, at most 10 MB as PNG; failures (too big, not readable, the sandbox
+  ended) show a balloon and type nothing. Copied image files and drag and drop are not supported.
+- With a global `files.exclude`, Hole warns about entries that match nothing in the paste folder at every start.
+
 ### New Sandbox dialog
 
 The dialog always opens with **default values** (no memory of previous ad-hoc values), so an ad-hoc start is a single
@@ -122,7 +145,7 @@ Form fields:
 - **Hole settings** – links to the settings files, see [Hole settings files](#hole-settings-files).
 - **Sandbox options** (checkboxes): Docker-in-Docker sidecar (`--with-docker`), unrestricted network (`-u`), trust
   project settings (`--trust-project`), log network access on exit (`-n`), rebuild images (`-r`), update agents before
-  start (`--update-agents`).
+  start (`--update-agents`), and **Image paste** (on by default; not a Hole flag, see [Image paste](#image-paste)).
 - **Libraries** – repeatable rows of host path and `:rw` flag (`--library PATH[:rw]`).
 - **Agent arguments** – free text passed after `--`.
 - **Command preview** – read-only, shows both the *Start* and the *Debug* command exactly as they will be executed,

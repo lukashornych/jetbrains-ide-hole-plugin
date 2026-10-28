@@ -451,6 +451,7 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
               <label class="chk" for="f-dump"><input type="checkbox" id="f-dump"><span>Log network access on exit<br><span class="flag">-n</span></span></label>
               <label class="chk" for="f-rebuild"><input type="checkbox" id="f-rebuild"><span>Rebuild images<br><span class="flag">-r</span></span></label>
               <label class="chk" for="f-update"><input type="checkbox" id="f-update"><span>Update agents before start<br><span class="flag">--update-agents</span></span></label>
+              <label class="chk" for="f-paste" title="Mounts a read-only folder for pasted images at /tmp/hole-idea-paste, so Cmd+V / Ctrl+V with an image on the clipboard pastes its path. Pasted images stay on disk until the sandbox ends."><input type="checkbox" id="f-paste" checked><span>Image paste<br><span class="flag">/tmp/hole-idea-paste</span></span></label>
             </div>
 
             <div class="lab"><span>Libraries</span></div>
@@ -609,6 +610,7 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
       <li><span class="mk doc">16</span><div><h3>Settings files created through Hole <span class="status agreed">Agreed</span></h3><p class="ans">The header's Global / Project links and the dialogs' Create links run <code>hole settings create</code> for a missing file (never <code>--overwrite</code>); the header then opens it in an editor.</p></div></li>
       <li><span class="mk doc">17</span><div><h3>Network window applies at once <span class="status agreed">Agreed</span></h3><p class="ans">Every add or remove is one <code>hole modify</code> call and one gateway apply; TUI-like staging may come later. Blocked names are reloaded on open, Refresh and after an add, never on a timer.</p></div></li>
       <li><span class="mk doc">18</span><div><h3>Favourites on the start page <span class="status agreed">Agreed</span></h3><p class="ans">The empty tool window lists up to five favourites (project ones first) with <em>More…</em> and <em>Edit Favourites…</em>. A click starts the agent; Debug Shell stays in the dropdown.</p></div></li>
+      <li><span class="mk doc">19</span><div><h3>Image paste <span class="status agreed">Agreed</span></h3><p class="ans"><code>Cmd+V</code> / <code>Ctrl+V</code> with an image on the clipboard saves it into <code>~/.hole/idea-paste/&lt;ID&gt;/</code>, mounted read-only at <code>/tmp/hole-idea-paste</code>, and types its path as a bracketed paste, which Claude Code shows as <code>[Image #1]</code>. On by default, off per sandbox or favourite; the folder is deleted when the sandbox ends.</p></div></li>
     </ol>
   </section>
 </div>
@@ -839,14 +841,14 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
   }
 
   /* ---------- form model ---------- */
-  const DEFAULTS = { agent: "claude", profile: "", project: ".", docker: false, unres: false, trust: false, dump: false, rebuild: false, update: false, libs: [], args: "" };
+  const DEFAULTS = { agent: "claude", profile: "", project: ".", docker: false, unres: false, trust: false, dump: false, rebuild: false, update: false, paste: true, libs: [], args: "" };
   const favs = [
     { scope: "Project", name: "Claude with Docker", ...DEFAULTS, docker: true, libs: [{ path: "~/.m2/repository", rw: false }] },
     { scope: "Project", name: "Research", ...DEFAULTS, profile: "research", args: "--model opus" },
     { scope: "Global", name: "Codex review", ...DEFAULTS, agent: "codex", profile: "review" },
     { scope: "Global", name: "Gemini, open network", ...DEFAULTS, agent: "gemini", unres: true },
   ];
-  const CHECKS = ["docker", "unres", "trust", "dump", "rebuild", "update"];
+  const CHECKS = ["docker", "unres", "trust", "dump", "rebuild", "update", "paste"];
   const FLAGS = [["dump", "-n"], ["rebuild", "-r"], ["update", "--update-agents"], ["unres", "-u"], ["docker", "--with-docker"], ["trust", "--trust-project"]];
   let libs = [];
   let view = "new";
@@ -869,6 +871,7 @@ pre.code { margin: 0; background: var(--ide-editor); color: var(--ide-text); bor
     if (debug) parts.push(["flag", "-d"]);
     FLAGS.forEach(([k, fl]) => { if (f[k]) parts.push(["flag", fl]); });
     f.libs.forEach((l) => { if (l.path.trim()) parts.push(["flag", "--library"], ["", l.path.trim() + (l.rw ? ":rw" : "")]); });
+    if (f.paste) parts.push(["flag", "--library"], ["", "~/.hole/idea-paste/" + (id || "‹generated›") + ":/tmp/hole-idea-paste"]);
     parts.push(["auto", "--instance-id " + (id || "‹generated›")]);
     if (f.args && !debug) parts.push(["sep", "--"], ["", f.args]);
     return parts.map(([c, v]) => (c ? '<span class="c-' + c + '">' + esc(v) + "</span>" : esc(v))).join(" ");

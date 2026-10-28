@@ -9,6 +9,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.serviceContainer.NonInjectable;
 import io.github.lukashornych.hole.idea.hole.HoleCapability;
 import io.github.lukashornych.hole.idea.hole.HoleExecutable;
+import io.github.lukashornych.hole.idea.hole.HoleListClient;
 import io.github.lukashornych.hole.idea.hole.HoleSettingsLocator;
 import io.github.lukashornych.hole.idea.hole.InstanceIdGenerator;
 import io.github.lukashornych.hole.idea.model.SandboxConfig;
@@ -76,6 +77,7 @@ public final class SandboxSessionManager implements Disposable {
             runnable -> ApplicationManager.getApplication().invokeLater(runnable, ModalityState.any()),
             new HoleNotifications(project)
         );
+        this.services.background().execute(() -> sweepPasteDirectories(this.services.pastes()));
     }
 
     /**
@@ -380,6 +382,20 @@ public final class SandboxSessionManager implements Disposable {
         if (this.selected == session) {
             this.selected = null;
         }
+    }
+
+    /**
+     * Removes the paste directories of sandboxes that are gone: {@link #dispose()} does not wait for the exits, and
+     * after a SIGKILL of the IDE nothing deletes them. Blocking.
+     */
+    private static void sweepPasteDirectories(@NotNull PasteDirectory pastes) {
+        final HoleExecutable hole = HoleExecutable.getInstance();
+        hole.locate().ifPresent(executable -> {
+            final int removed = pastes.sweep(new HoleListClient(executable.toString(), hole.runner()));
+            if (removed > 0) {
+                LOG.info("Removed " + removed + " paste directories of ended sandboxes");
+            }
+        });
     }
 
     @NotNull

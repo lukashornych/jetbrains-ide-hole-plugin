@@ -8,9 +8,14 @@ plugins {
 group = providers.gradleProperty("pluginGroup").get()
 version = providers.gradleProperty("pluginVersion").get()
 
+// -PplatformVersion=<version> builds and tests against another IDE (2025.3+ ships as a single IntelliJ IDEA).
+// IDEs from 2026.1 are compiled for Java 25, so that run uses a Java 25 toolchain (e.g. the IDE's bundled JBR via
+// -Porg.gradle.java.installations.paths=<idea>/jbr); the plugin itself is always compiled for Java 21.
+val platformVersion = providers.gradleProperty("platformVersion").orNull
+
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(if (platformVersion == null) 21 else 25)
     }
 }
 
@@ -26,7 +31,11 @@ val junitVersion = "5.13.4"
 
 dependencies {
     intellijPlatform {
-        intellijIdeaCommunity("2025.2")
+        if (platformVersion == null) {
+            intellijIdeaCommunity("2025.2")
+        } else {
+            intellijIdea(platformVersion)
+        }
         bundledPlugin("org.jetbrains.plugins.terminal")
         testFramework(TestFrameworkType.Platform)
     }
@@ -63,6 +72,13 @@ intellijPlatform {
 tasks {
     withType<JavaCompile> {
         options.encoding = "UTF-8"
+        options.release = 21
+    }
+    prepareTestSandbox {
+        if (platformVersion != null) {
+            // the unified IntelliJ IDEA cannot start its Ultimate part in tests without a subscription
+            disabledPlugins.add("com.intellij.modules.ultimate")
+        }
     }
     test {
         useJUnitPlatform()

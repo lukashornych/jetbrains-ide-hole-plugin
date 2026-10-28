@@ -165,7 +165,7 @@ class HoleCommandBuilderTest {
     void fullConfiguration() {
         final SandboxConfig config = new SandboxConfig(
             "codex", "review", "/work/acme-shop",
-            true, true, true, true, true, true,
+            true, true, true, true, true, true, true,
             List.of(new Library("~/lib", true)),
             "--full-auto"
         );
@@ -188,6 +188,34 @@ class HoleCommandBuilderTest {
             ),
             HoleCommandBuilder.debug(HOLE, config, ID)
         );
+    }
+
+    @Test
+    void pasteDirectoryIsMountedReadOnlyAfterTheLibrariesAndBeforeTheInstanceId() {
+        final SandboxConfig config = SandboxConfig.defaults()
+            .withLibraries(List.of(new Library("~/lib", true)))
+            .withAgentArgs("--model opus");
+        final String paste = "/home/dev/.hole/idea-paste/" + ID;
+        assertEquals(
+            List.of(
+                HOLE, "start", "claude", ".",
+                "--library", "~/lib:rw",
+                "--library", paste + ":/tmp/hole-idea-paste",
+                "--instance-id", ID,
+                "--", "--model", "opus"
+            ),
+            HoleCommandBuilder.start(HOLE, config, ID, paste)
+        );
+        assertEquals(
+            List.of(HOLE, "start", "claude", ".", "-d", "--library", "~/lib:rw", "--library", paste + ":/tmp/hole-idea-paste", "--instance-id", ID),
+            HoleCommandBuilder.debug(HOLE, config, ID, paste)
+        );
+    }
+
+    @Test
+    void noPasteDirectoryNoPasteLibrary() {
+        assertEquals(List.of(HOLE, "start", "claude", ".", "--instance-id", ID), HoleCommandBuilder.start(HOLE, SandboxConfig.defaults(), ID, null));
+        assertEquals(HoleCommandBuilder.start(HOLE, SandboxConfig.defaults(), ID), HoleCommandBuilder.start(HOLE, SandboxConfig.defaults(), ID, null));
     }
 
     @Test

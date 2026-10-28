@@ -107,7 +107,7 @@ class RealHoleBinaryTest {
                 "rlt3st",
                 new SessionServices(
                     new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(poller),
-                    () -> "rlt3su", new MutableClock(Instant.now()), background
+                    () -> "rlt3su", new MutableClock(Instant.now()), background, PasteDirectory.disabled()
                 ),
                 new SandboxSession.Listener() {
                     @Override

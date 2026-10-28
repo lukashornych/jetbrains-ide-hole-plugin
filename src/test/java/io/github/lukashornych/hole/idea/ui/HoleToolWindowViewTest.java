@@ -19,6 +19,7 @@ import io.github.lukashornych.hole.idea.model.SandboxConfig;
 import io.github.lukashornych.hole.idea.process.CliRunner;
 import io.github.lukashornych.hole.idea.session.HoleTerminalRunner;
 import io.github.lukashornych.hole.idea.session.MetadataSource;
+import io.github.lukashornych.hole.idea.session.PasteDirectory;
 import io.github.lukashornych.hole.idea.session.ProcessSignaller;
 import io.github.lukashornych.hole.idea.session.SandboxSession;
 import io.github.lukashornych.hole.idea.session.SandboxSessionManager;
@@ -72,7 +73,7 @@ public class HoleToolWindowViewTest extends BasePlatformTestCase {
         final HoleExecutable executable = new HoleExecutable(() -> this.hole.executable().toString(), new CliRunner(this.hole::environment));
         final SessionServices services = new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            new InstanceIdGenerator()::generate, Clock.systemUTC(), this.background
+            new InstanceIdGenerator()::generate, Clock.systemUTC(), this.background, PasteDirectory.disabled()
         );
         this.manager = new SandboxSessionManager(
             project, executable::probe, this.hole::environment, services,

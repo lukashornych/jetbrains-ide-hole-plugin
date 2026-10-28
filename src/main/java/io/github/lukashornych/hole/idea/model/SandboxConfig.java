@@ -18,6 +18,8 @@ import java.util.List;
  * @param dumpNetworkAccess   `-n`, log network access on exit
  * @param rebuild             `-r`, rebuild images
  * @param updateAgents        `--update-agents`
+ * @param imagePaste          mount a read-only folder for pasted images (not a Hole flag: the plugin adds a
+ *                            `--library`, see {@code PasteDirectory})
  * @param libraries           `--library` rows in the order given
  * @param agentArgs           free text passed to the agent after `--` (split like a shell command line)
  */
@@ -32,6 +34,7 @@ public record SandboxConfig(
     boolean dumpNetworkAccess,
     boolean rebuild,
     boolean updateAgents,
+    boolean imagePaste,
     @NotNull List<Library> libraries,
     @NotNull String agentArgs
 ) {
@@ -46,14 +49,14 @@ public record SandboxConfig(
     }
 
     /**
-     * Returns the values a New Sandbox dialog opens with: `claude`, no profile, `.`, no options,
+     * Returns the values a New Sandbox dialog opens with: `claude`, no profile, `.`, no options except image paste,
      * no libraries and no agent arguments.
      */
     @NotNull
     public static SandboxConfig defaults() {
         return new SandboxConfig(
             DEFAULT_AGENT, "", DEFAULT_PROJECT_PATH,
-            false, false, false, false, false, false,
+            false, false, false, false, false, false, true,
             List.of(), ""
         );
     }

@@ -17,7 +17,7 @@ import java.util.List;
 public class FavouritesPersistenceTest extends BasePlatformTestCase {
 
     private static final Favourite FULL = new Favourite("Research with Docker", FavouriteScope.PROJECT, new SandboxConfig(
-        "claude", "research", "../acme-cms-worktree", true, true, true, true, true, true,
+        "claude", "research", "../acme-cms-worktree", true, true, true, true, true, true, false,
         List.of(new Library("~/libs/shared", true), new Library("/opt/data", false)), "--model opus \"two words\""
     ));
     private static final Favourite GLOBAL = new Favourite("Codex anywhere", FavouriteScope.GLOBAL, SandboxConfig.defaults().withAgent("codex"));
@@ -93,6 +93,22 @@ public class FavouritesPersistenceTest extends BasePlatformTestCase {
         final FavouritesState state = new FavouritesState();
         state.setFavourites(null);
         assertEquals(List.of(), state.toFavourites(FavouriteScope.GLOBAL));
+    }
+
+    public void testFavouriteSavedWithoutImagePasteLoadsWithImagePasteOn() {
+        // favourites saved before the option existed have no attribute for it
+        final Element xml = XmlSerializer.serialize(FavouriteBean.of(GLOBAL.withConfig(GLOBAL.config().withImagePaste(false))));
+        xml.getChildren().removeIf(option -> "imagePaste".equals(option.getAttributeValue("name")));
+        assertFalse(xml.getChildren().isEmpty());
+
+        final FavouriteBean loaded = XmlSerializer.deserialize(xml, FavouriteBean.class);
+        assertTrue(loaded.toFavourite(FavouriteScope.GLOBAL).config().imagePaste());
+    }
+
+    public void testImagePasteOffRoundTrip() {
+        final Favourite off = GLOBAL.withConfig(GLOBAL.config().withImagePaste(false));
+        final Element xml = XmlSerializer.serialize(FavouriteBean.of(off));
+        assertEquals(off, XmlSerializer.deserialize(xml, FavouriteBean.class).toFavourite(FavouriteScope.GLOBAL));
     }
 
     public void testStorageFiles() {

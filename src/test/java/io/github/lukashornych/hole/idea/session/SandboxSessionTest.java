@@ -52,6 +52,8 @@ class SandboxSessionTest {
     private ExecutorService background;
     private MutableClock clock;
     private final Deque<String> nextIds = new ArrayDeque<>();
+    /** Disabled unless a test needs the image paste, so the other tests see the command lines without the mount. */
+    private PasteDirectory pastes = PasteDirectory.disabled();
     private final List<SandboxSession> started = new CopyOnWriteArrayList<>();
 
     @BeforeEach
@@ -209,7 +211,7 @@ class SandboxSessionTest {
         );
         final SandboxSession session = new SandboxSession(launch, "aaaaaa", new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            this.nextIds::poll, this.clock, this.background
+            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled()
         ), recorder);
         session.start();
         this.started.add(session);
@@ -228,7 +230,7 @@ class SandboxSessionTest {
         );
         final SandboxSession session = new SandboxSession(launch, "aaaaaa", new SessionServices(
             new HoleTerminalRunner(), (pid, signal) -> signals.incrementAndGet() > 0, MetadataSource.of(this.poller),
-            this.nextIds::poll, this.clock, this.background
+            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled()
         ), recorder);
         try {
             session.start();
@@ -305,7 +307,7 @@ class SandboxSessionTest {
             SandboxConfig.defaults(), false, this.hole.executable(), this.project, this.project, this.hole.environment()
         ), "aaaaaa", new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            this.nextIds::poll, this.clock, this.background
+            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled()
         ), recorder);
         session.setAgentTitle("✳ Fix EntityIndexTest");
         session.setAgentTitle("✳ Fix EntityIndexTest");
@@ -372,6 +374,73 @@ class SandboxSessionTest {
         assertFalse(launch.toString().contains("s3cr3t"));
         assertFalse(launch.toString().contains("t0k3n"));
         assertTrue(launch.describe().contains("agent claude"));
+    }
+
+    @Test
+    void pasteDirectoryExistsWhenHoleStartsAndIsDeletedAfterTheExit() {
+        final Path root = enableImagePaste();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", new Recorder());
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+
+        final Path directory = root.resolve("aaaaaa");
+        assertEquals(directory, session.pasteDirectory());
+        assertTrue(Files.isDirectory(directory));
+        assertEquals(List.of("start claude . --library " + directory + ":/tmp/hole-idea-paste --instance-id aaaaaa"), startCalls());
+
+        session.requestClose();
+        waitUntil(() -> session.snapshot().state() == SessionState.CLOSED, "closed");
+        waitUntil(() -> !Files.exists(directory), "paste directory deleted");
+        assertNull(session.pasteDirectory());
+    }
+
+    @Test
+    void imagePasteOffStartsWithoutPasteDirectory() {
+        final Path root = enableImagePaste();
+        final SandboxSession session = start(SandboxConfig.defaults().withImagePaste(false), false, "aaaaaa", new Recorder());
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+
+        assertNull(session.pasteDirectory());
+        assertFalse(Files.exists(root.resolve("aaaaaa")));
+        assertEquals(List.of("start claude . --instance-id aaaaaa"), startCalls());
+    }
+
+    @Test
+    void duplicateIdRetryUsesANewPasteDirectory() {
+        final Path root = enableImagePaste();
+        this.hole.putInstance("aaaaaa", "running");
+        this.nextIds.add("bbbbbb");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+
+        waitUntil(() -> recorder.restarts.get() == 1 && session.snapshot().state() == SessionState.RUNNING, "retry runs");
+        assertEquals(root.resolve("bbbbbb"), session.pasteDirectory());
+        assertTrue(Files.isDirectory(root.resolve("bbbbbb")));
+        assertFalse(Files.exists(root.resolve("aaaaaa")), "the rejected attempt's directory is gone");
+    }
+
+    @Test
+    void restartWithImagePasteToggledChangesTheMount() {
+        final Path root = enableImagePaste();
+        this.nextIds.add("bbbbbb");
+        this.nextIds.add("cccccc");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults().withImagePaste(false), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+        assertNull(session.pasteDirectory());
+
+        assertTrue(session.restart(launch(SandboxConfig.defaults(), this.hole.environment())));
+        waitUntil(() -> recorder.restarts.get() == 1 && session.snapshot().state() == SessionState.RUNNING, "restarted with image paste");
+        assertEquals(root.resolve("bbbbbb"), session.pasteDirectory());
+
+        assertTrue(session.restart(launch(SandboxConfig.defaults().withImagePaste(false), this.hole.environment())));
+        waitUntil(() -> recorder.restarts.get() == 2 && session.snapshot().state() == SessionState.RUNNING, "restarted without image paste");
+        assertNull(session.pasteDirectory());
+        assertFalse(Files.exists(root.resolve("bbbbbb")), "the old process's directory is gone");
+        assertEquals(List.of(
+            "start claude . --instance-id aaaaaa",
+            "start claude . --library " + root.resolve("bbbbbb") + ":/tmp/hole-idea-paste --instance-id bbbbbb",
+            "start claude . --instance-id cccccc"
+        ), startCalls());
     }
 
     @Test
@@ -590,7 +659,7 @@ class SandboxSessionTest {
     ) {
         final SessionServices services = new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            () -> this.nextIds.isEmpty() ? "zzzzzz" : this.nextIds.poll(), this.clock, background
+            () -> this.nextIds.isEmpty() ? "zzzzzz" : this.nextIds.poll(), this.clock, background, this.pastes
         );
         final SandboxSession.Launch launch = new SandboxSession.Launch(
             config, debug, this.hole.executable(), this.project, this.project, this.hole.environment()
@@ -605,6 +674,17 @@ class SandboxSessionTest {
         recorder.drain = TerminalDrain.start(session.createConnector());
         this.started.add(session);
         return session;
+    }
+
+    /**
+     * Gives the sessions of the test real paste directories, and makes the fake `hole start` fail when one is missing.
+     */
+    @NotNull
+    private Path enableImagePaste() {
+        final Path root = this.temp.resolve("paste");
+        this.pastes = new PasteDirectory(root, this.clock);
+        this.hole.environment().put("FAKE_HOLE_REQUIRE_LIBRARIES", "1");
+        return root;
     }
 
     @NotNull

@@ -59,6 +59,18 @@ public final class HoleNotifications implements StartFailureNotifier {
             NotificationType.WARNING);
     }
 
+    /**
+     * An image could not be pasted into a sandbox terminal (or the sandbox has no image paste).
+     *
+     * @param reason why, for the user
+     */
+    public void imagePasteFailed(@NotNull String reason) {
+        NotificationGroupManager.getInstance()
+            .getNotificationGroup(GROUP_ID)
+            .createNotification("Image not pasted", reason, NotificationType.WARNING)
+            .notify(this.project);
+    }
+
     private void notify(@NotNull String title, @NotNull String message, @NotNull NotificationType type) {
         final Notification notification = NotificationGroupManager.getInstance()
             .getNotificationGroup(GROUP_ID)

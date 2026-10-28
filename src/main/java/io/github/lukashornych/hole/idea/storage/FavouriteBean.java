@@ -30,6 +30,8 @@ public class FavouriteBean {
     private boolean dumpNetworkAccess;
     private boolean rebuild;
     private boolean updateAgents;
+    /** On unless stored otherwise: favourites saved before the option existed have no attribute for it. */
+    private boolean imagePaste = true;
     private List<LibraryBean> libraries = new ArrayList<>();
     private String agentArgs = "";
 
@@ -50,6 +52,7 @@ public class FavouriteBean {
         bean.dumpNetworkAccess = config.dumpNetworkAccess();
         bean.rebuild = config.rebuild();
         bean.updateAgents = config.updateAgents();
+        bean.imagePaste = config.imagePaste();
         bean.libraries = new ArrayList<>(config.libraries().stream().map(LibraryBean::of).toList());
         bean.agentArgs = config.agentArgs();
         return bean;
@@ -69,7 +72,7 @@ public class FavouriteBean {
             Objects.requireNonNullElse(this.agent, ""), Objects.requireNonNullElse(this.profile, ""),
             Objects.requireNonNullElse(this.projectPath, ""),
             this.withDocker, this.unrestrictedNetwork, this.trustProject, this.dumpNetworkAccess, this.rebuild, this.updateAgents,
-            libs, Objects.requireNonNullElse(this.agentArgs, "")
+            this.imagePaste, libs, Objects.requireNonNullElse(this.agentArgs, "")
         ));
     }
 

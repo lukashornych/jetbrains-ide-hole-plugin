@@ -157,6 +157,15 @@ public final class SandboxSession {
     }
 
     /**
+     * Returns the paste directory of the current process while the session is alive, {@code null} when the process
+     * was started without one (image paste off, or the directory could not be created) or the session has ended.
+     */
+    @Nullable
+    public synchronized Path pasteDirectory() {
+        return this.attempt == null || !this.state.isAlive() ? null : this.attempt.pasteDirectory;
+    }
+
+    /**
      * Creates the connector for a terminal widget that shows the current process. Call again after
      * {@link Listener#processRestarted(SandboxSession)}.
      */
@@ -321,11 +330,20 @@ public final class SandboxSession {
     @NotNull
     private Attempt spawn(@NotNull Launch with, @NotNull String id) throws IOException {
         final String executable = with.executable().toString();
-        final List<String> command = with.debug()
-            ? HoleCommandBuilder.debug(executable, with.config(), id)
-            : HoleCommandBuilder.start(executable, with.config(), id);
-        final PtyProcess process = this.services.runner().spawn(command, with.workingDirectory(), with.environment());
-        return new Attempt(id, process);
+        // before the spawn: Hole skips a missing library with only a warning
+        final Path pasteDirectory = with.config().imagePaste() ? this.services.pastes().create(id) : null;
+        final String paste = pasteDirectory == null ? null : pasteDirectory.toString();
+        final PtyProcess process;
+        try {
+            final List<String> command = with.debug()
+                ? HoleCommandBuilder.debug(executable, with.config(), id, paste)
+                : HoleCommandBuilder.start(executable, with.config(), id, paste);
+            process = this.services.runner().spawn(command, with.workingDirectory(), with.environment());
+        } catch (IOException | RuntimeException e) {
+            this.services.pastes().delete(pasteDirectory);
+            throw e;
+        }
+        return new Attempt(id, process, pasteDirectory);
     }
 
     private void watch(@NotNull Attempt current) {
@@ -392,6 +410,8 @@ public final class SandboxSession {
     private void processExited(@NotNull Attempt exited) {
         // the PID is reaped and may be reused: no signal may go to it any more
         exited.exited = true;
+        // `hole start` has finished its teardown: nothing mounts the pasted images any more
+        this.services.pastes().delete(exited.pasteDirectory);
         final int code = exitValue(exited.process);
         final boolean mayRetry;
         final Launch restartWith;
@@ -673,6 +693,8 @@ public final class SandboxSession {
 
         private final String instanceId;
         private final PtyProcess process;
+        /** Mounted for the image paste, {@code null} when the process was started without it. */
+        private final Path pasteDirectory;
         private final StringBuilder earlyOutput = new StringBuilder();
         private final CompletableFuture<Void> outputClosed = new CompletableFuture<>();
         private volatile Disposable subscription;
@@ -684,9 +706,10 @@ public final class SandboxSession {
          */
         private volatile boolean connected;
 
-        private Attempt(@NotNull String instanceId, @NotNull PtyProcess process) {
+        private Attempt(@NotNull String instanceId, @NotNull PtyProcess process, @Nullable Path pasteDirectory) {
             this.instanceId = instanceId;
             this.process = process;
+            this.pasteDirectory = pasteDirectory;
         }
 
         @Override
