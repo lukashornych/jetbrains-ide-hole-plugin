@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fake `hole` CLI for the plugin tests (implementation plan, section 4). It implements just enough of Hole 2.6.0's
+# Fake `hole` CLI for the plugin tests. It implements just enough of Hole 2.6.0's
 # `hole start`, `hole list [--json] [--no-gc] [id]`, `hole settings get|create`, `hole modify` and `hole version` to
 # exercise the plugin
 # without Docker. Error lines look like Hole's: `[ERROR] message`, coloured when stderr is a terminal.

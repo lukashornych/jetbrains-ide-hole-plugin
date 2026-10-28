@@ -17,7 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Parses the stdout of `hole list --json` (schema in `documentation/hole-assignment-instance-id-and-list-json.md`).
+ * Parses the stdout of `hole list --json` (schema in Hole's README, "Machine-readable list").
  *
  * <p>The top level must be a JSON array of objects. Fields are read leniently: unknown fields are ignored (Hole may
  * add new ones), missing or mistyped fields get empty defaults. An entry without an `instanceId` is skipped, because

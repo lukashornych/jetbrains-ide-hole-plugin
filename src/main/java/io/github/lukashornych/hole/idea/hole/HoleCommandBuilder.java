@@ -14,7 +14,7 @@ import java.util.List;
  * Builds the argument lists of the Hole commands the plugin runs. Commands are always lists of arguments that are
  * passed to the process as they are, never shell strings.
  *
- * <p>`hole start` has the shape (flag order as in the design mockup):</p>
+ * <p>`hole start` has the shape:</p>
  * <pre>
  * hole start agent[:profile] path [-d] [-n] [-r] [--update-agents] [-u] [--with-docker] [--trust-project]
  *      [--library PATH[:rw]]... [--library PASTE_DIR:/tmp/hole-idea-paste] --instance-id ID [-- agent args...]

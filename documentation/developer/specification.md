@@ -1,14 +1,18 @@
-# Project specification
+# Specification
 
-We will build a JetBrains IDE (mainly IntelliJ IDEA) plugin for managing [Hole](https://github.com/lukashornych/hole) sandboxes.
+A JetBrains IDE (mainly IntelliJ IDEA) plugin for managing [Hole](https://github.com/lukashornych/hole) sandboxes.
 The plugin provides a convenient way to create, manage, and switch between sandboxes directly from within the IDE. It is a
 more convenient alternative to launching Hole manually in the built-in Terminal tool window.
 
+This document is the source of truth for the plugin's behaviour; every behaviour change updates it in the same change.
+How the behaviour is implemented is described in [architecture](architecture.md).
+
 Related documents:
 
-- `../design-mockup.html` – interactive design mockup (published as an artifact) with the decision log.
-- `documentation/hole-assignment-instance-id-and-list-json.md` – changes required in Hole itself (implemented in
-  Hole 2.6.0, the minimum version the plugin supports).
+- [Hole README](https://github.com/lukashornych/hole#readme) – the Hole CLI contract the plugin relies on, in particular
+  `--instance-id`, the [machine-readable list](https://github.com/lukashornych/hole#machine-readable-list)
+  (`hole list --json`), [stopping a sandbox from another program](https://github.com/lukashornych/hole#stopping-a-sandbox-from-another-program)
+  and `hole modify` (all in Hole 2.6.0, the minimum version the plugin supports).
 
 ## GUI
 
@@ -204,8 +208,8 @@ therefore the signal that the sandbox is gone.
 The plugin generates the 6-character instance ID (`[a-z0-9]`) itself and passes it with `--instance-id`. The header
 metadata and the lifecycle status are read by polling `hole list --json --no-gc` (one unfiltered call for all
 sandboxes, fanned out by instance ID; every second while starting, less often afterwards). `--no-gc` keeps each poll from running Hole's cleanup of dead sandboxes, which costs several container
-engine calls; Hole still cleans up on every `hole start`. These options are the Hole change described in
-`documentation/hole-assignment-instance-id-and-list-json.md`, released in **Hole 2.6.0**.
+engine calls; Hole still cleans up on every `hole start`. These options were added to Hole for the plugin and
+released in **Hole 2.6.0** (see the [Hole README](https://github.com/lukashornych/hole#machine-readable-list)).
 
 **Minimum Hole version: 2.6.0.** The plugin reads `hole version` (`hole 2.6.0`, `hole 2.6.0 (go install)`; development
 builds count as supported). For an older Hole it shows the notice "This plugin needs Hole 2.6.0 or newer. Run

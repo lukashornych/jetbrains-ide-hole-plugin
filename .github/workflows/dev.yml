@@ -25,6 +25,9 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
+      - name: Check ADR index
+        run: scripts/generate-adr-index.sh --check
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
