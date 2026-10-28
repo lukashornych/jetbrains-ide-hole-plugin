@@ -22,12 +22,12 @@ decisions over weeks and its evidence must be kept; then it becomes a directory.
 ```markdown
 ---
 title: <one line, the decision itself — not the issue title>
-date: 2026-07-24            # accepted; the day the record is committed with its implementation
+date: 2026-07-24            # accepted; normally the merge date of the implementing PR
 updated: 2026-07-24 16:20   # last substantive edit of this record (local time)
 status: accepted            # accepted | partially-implemented | proposed | superseded | rejected | reverted
 kind: feature               # feature | optimization | fix | refactor | infrastructure | process
 issues: [57]                # GitHub issue numbers, [] if none
-prs: [61]                   # GitHub PR numbers known when committed, [] otherwise; not back-filled
+prs: [61]                   # GitHub PR numbers, [] if not merged yet
 areas: [src/main/java/io/github/lukashornych/hole/idea/<package>]   # source paths the change lives in
 supersedes: []              # ADR ids — the filename without .md
 superseded-by: []
@@ -107,7 +107,7 @@ issue, one enabled the other). Bare links are useless; one clause of context eac
 (`2026-07-24 15:49`), same format as `updated:`.*
 
 - **2026-07-22** — problem reported / investigation started
-- **2026-07-24** — implemented and accepted
+- **2026-07-24** — implemented, PR #61 merged
 ```
 
 ---

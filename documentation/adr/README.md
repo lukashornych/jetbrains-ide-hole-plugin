@@ -15,8 +15,7 @@ describe what actually happened. Most changes do not need one — the bar defaul
 ## Conventions in one paragraph
 
 A record is `YYYY-MM-DD-<slug>.md` in this folder — the date is when the decision was **accepted**,
-the day the record is committed with its implementation, so `ls` reads chronologically. A record is
-final when committed; it is not completed after the merge. When a line of work
+normally the merge date of the implementing PR, so `ls` reads chronologically. When a line of work
 produced several decisions *and* evidence worth keeping, it becomes `YYYY-MM-DD-<slug>/` with the
 record at `README.md` and the evidence beside it — never more files than earn their place. Every
 record opens with YAML front matter (`status`, `kind`, `issues`, `prs`, `areas`, `relates`,

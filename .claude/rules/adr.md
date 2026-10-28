@@ -66,16 +66,11 @@ fold it into the next record that covers its area rather than back-filling its o
   keeping. Keep no file that cannot be given a one-line reason in the record's *Supporting
   material* section.
 
-**The record is final when it is committed.** It is written in its finished form and committed
-together with the implementation — never left `proposed` to be completed after the merge, and never
-edited after the merge just to fill in a date, a status or a PR number. Implemented work gets
-`status: accepted`; `prs:` stays `[]` when the PR does not exist yet (the PR links to the record,
-not the other way round).
-
-**Which date.** The date the decision was **accepted**, i.e. the day the record is committed with
-the work that implements it. Not the day the work started. Tie-breaks: several PRs → the commit that
-completed the line of work; decision accepted but not yet implemented → the date it was accepted,
-with `status: proposed`; abandoned → the date it was abandoned, with `status: rejected`.
+**Which date.** The date the decision was **accepted** — normally the merge date of the
+implementing PR (`git log -1 --format=%ad --date=short <merge-commit>`). Not the date the document
+was written, not the day the work started. Tie-breaks: several PRs → the last one that completed
+the line of work; decision accepted but not yet implemented → the date it was accepted, with
+`status: proposed`; never merged → the date it was abandoned, with `status: rejected`.
 
 `date:` never changes once set, and must match the date in the filename — the index generator
 fails when they disagree. `updated:` carries date **and** time and moves with every substantive
