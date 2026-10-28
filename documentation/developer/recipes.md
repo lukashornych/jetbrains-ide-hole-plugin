@@ -72,6 +72,7 @@ below), and a case in `RealHoleBinaryTest` that runs the command against a real 
 - [ ] Behaviour changes are in the [specification](specification.md) and, when user-visible, in the README;
       developer-facing changes are in `documentation/developer/`.
 - [ ] Nothing logs the environment, settings contents or `hole start` command lines; test data is anonymised.
-- [ ] If the work clears the bar in `.claude/rules/adr.md`, the ADR is written and
-      `scripts/generate-adr-index.sh --check` passes; the plan it replaces is deleted.
+- [ ] If the work clears the bar in `.claude/rules/adr.md`, the ADR is written in its final form
+      (`status: accepted`, dated the day it is committed, no edits after the merge),
+      `scripts/generate-adr-index.sh --check` passes and the plan it replaces is deleted.
 - [ ] Commit messages follow conventional commits; the PR targets `dev` and has a label for the release notes.
