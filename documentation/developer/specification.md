@@ -70,6 +70,13 @@ and the Docker-in-Docker toggle keep the chosen location.
 
 The tab body has a small header and, below it, the interactive terminal with the Hole sandbox output.
 
+Hole's own interactive prompts (e.g. `Update agents now? [Y/n/s]`, project trust) are left in the terminal for the
+user to answer. The plugin does not intercept them.
+
+**`Escape`** in a sandbox terminal always goes to the program (e.g. interrupts Claude Code); it does not move the focus
+to the editor as in other tool windows. The Terminal plugin's "Move focus to the editor with Escape" advanced setting
+does not apply to sandbox tabs.
+
 The **header** shows:
 
 - instance ID,
@@ -126,9 +133,6 @@ actions while they run. Errors by Hole's exit code: 2 → Hole's message under t
 gateway conflict); 3 → *The sandbox is not running or still starting* (for a sandbox started by an older Hole with a
 *Restart Sandbox* button); 4 → *The gateway did not apply the change; the previous allow list is still in force* with
 Hole's message; anything else → Hole's message.
-
-Hole's own interactive prompts (e.g. `Update agents now? [Y/n/s]`, project trust) are left in the terminal for the
-user to answer. The plugin does not intercept them.
 
 ### Image paste
 
