@@ -1,6 +1,15 @@
 package io.github.lukashornych.hole.idea.ui;
 
+import com.intellij.ide.impl.HeadlessDataManager;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataSink;
+import com.intellij.openapi.actionSystem.PlatformDataKeys;
+import com.intellij.openapi.actionSystem.UiDataProvider;
 import com.intellij.openapi.ide.CopyPasteManager;
+import com.intellij.openapi.wm.RegisterToolWindowTask;
+import com.intellij.openapi.wm.ToolWindow;
+import com.intellij.openapi.wm.ToolWindowAnchor;
+import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.terminal.JBTerminalPanel;
 import com.intellij.terminal.JBTerminalWidget;
 import com.intellij.testFramework.PlatformTestUtil;
@@ -11,7 +20,9 @@ import com.jediterm.terminal.model.JediTerminal;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.terminal.JBTerminalSystemSettingsProvider;
 
+import javax.swing.JPanel;
 import javax.swing.KeyStroke;
+import java.awt.BorderLayout;
 import java.awt.GraphicsEnvironment;
 import java.awt.HeadlessException;
 import java.awt.datatransfer.StringSelection;
@@ -28,10 +39,14 @@ import java.util.function.BooleanSupplier;
  * Pins down the platform behaviour the image paste relies on, against a real {@link JBTerminalWidget}: a handler
  * added through {@link JBTerminalPanel#addPreKeyEventHandler} sees the paste keys before the terminal, consuming
  * the key suppresses the terminal's own paste and control character, and the bracketed paste mode can be read
- * from {@link JediTerminal}. Run it against newer IDEs with {@code -PplatformVersion=<version>}.
+ * from {@link JediTerminal}; inside a tool window other than Terminal the platform takes `Escape` for moving the focus
+ * to the editor, unless {@link EscapeKeyHandler} sends it to the program first. Run it against newer IDEs with
+ * {@code -PplatformVersion=<version>}.
  *
  * <p>Key events are fed to {@link JBTerminalPanel#handleKeyEvent}; the panel's {@code IdeEventQueue} dispatcher,
- * which hands keys to the panel before the IDE keymap, needs a focused window and is not covered here.</p>
+ * which hands keys to the panel before the IDE keymap, needs a focused window and is not covered here. The tool window
+ * context needs the production data manager ({@link HeadlessDataManager#fallbackToProductionDataManager}), as the
+ * headless one does not read the context of a component.</p>
  */
 public class TerminalKeyDispatchTest extends BasePlatformTestCase {
 
@@ -102,12 +117,61 @@ public class TerminalKeyDispatchTest extends BasePlatformTestCase {
         assertEquals("", this.connector.written());
     }
 
+    public void testEscapeInToolWindowIsTakenByThePlatform() {
+        placeInToolWindow();
+
+        press(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0));
+
+        settle();
+        assertEquals("", this.connector.written());
+    }
+
+    public void testEscapeKeyHandlerSendsEscapeInToolWindow() {
+        placeInToolWindow();
+        new EscapeKeyHandler(this.widget).install();
+
+        press(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0));
+        waitOnEdt(() -> !this.connector.written().isEmpty(), "the escape to reach the terminal");
+        press(KeyStroke.getKeyStroke(KeyEvent.VK_A, 0));
+
+        waitOnEdt(() -> this.connector.written().endsWith("a"), "the next key to reach the terminal");
+        settle();
+        assertEquals("\u001ba", this.connector.written());
+    }
+
+    public void testEscapeKeyHandlerLeavesModifiedEscapeAlone() {
+        final int[] consumed = new int[1];
+        new EscapeKeyHandler(this.widget).install();
+        panel().addPreKeyEventHandler(event -> {
+            if (event.isConsumed()) {
+                consumed[0]++;
+            }
+        });
+
+        press(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, InputEvent.SHIFT_DOWN_MASK));
+
+        assertEquals(0, consumed[0]);
+    }
+
     public void testBracketedPasteModeFollowsTheProgram() {
         assertTrue(bracketedPasteMode());
 
         output(BRACKETED_PASTE_OFF);
 
         waitOnEdt(() -> !bracketedPasteMode(), "bracketed paste mode off");
+    }
+
+    /**
+     * Puts the terminal into a tool window as the Hole tool window does: its data context names the tool window. The
+     * headless tool window manager overwrites a registration of the same id, so nothing is unregistered.
+     */
+    private void placeInToolWindow() {
+        // the headless data manager does not read the context of a component
+        HeadlessDataManager.fallbackToProductionDataManager(getTestRootDisposable());
+        final ToolWindow toolWindow = ToolWindowManager.getInstance(getProject())
+            .registerToolWindow(RegisterToolWindowTask.notClosable("Hole", ToolWindowAnchor.BOTTOM));
+        final JPanel content = new ToolWindowContent(toolWindow);
+        content.add(this.widget.getComponent(), BorderLayout.CENTER);
     }
 
     @NotNull
@@ -179,6 +243,22 @@ public class TerminalKeyDispatchTest extends BasePlatformTestCase {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new AssertionError(e);
+        }
+    }
+
+    private static final class ToolWindowContent extends JPanel implements UiDataProvider {
+
+        private final ToolWindow toolWindow;
+
+        ToolWindowContent(@NotNull ToolWindow toolWindow) {
+            super(new BorderLayout());
+            this.toolWindow = toolWindow;
+        }
+
+        @Override
+        public void uiDataSnapshot(@NotNull DataSink sink) {
+            sink.set(PlatformDataKeys.TOOL_WINDOW, this.toolWindow);
+            sink.set(CommonDataKeys.PROJECT, this.toolWindow.getProject());
         }
     }
 

@@ -110,7 +110,10 @@ The agent's OSC 0/2 title is read through jediterm's title listener. File paths 
 `SandboxPathFilter`, because the Terminal plugin hands its own path filter only to its reworked terminal.
 `ImagePasteHandler` is installed as a pre-key handler of the terminal panel and turns a paste key with an image on
 the clipboard into a PNG in the sandbox's paste folder plus a bracketed paste of its container path (details in the
-[specification](specification.md#image-paste)).
+[specification](specification.md#image-paste)). `EscapeKeyHandler`, another pre-key handler, writes a plain `Escape`
+to the pty and consumes it: otherwise the platform's internal `TerminalEscapeKeyListener`, which runs after the
+pre-key handlers, moves the focus to the editor in every tool window but Terminal while the program draws in the main
+screen buffer (as Claude Code does).
 
 ## Metadata polling
 
