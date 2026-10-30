@@ -1,15 +1,21 @@
 package io.github.lukashornych.hole.idea.ui;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.MessageDialogBuilder;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.terminal.JBTerminalWidget;
+import io.github.lukashornych.hole.idea.git.WorktreeLister;
 import io.github.lukashornych.hole.idea.hole.HoleExecutable;
 import io.github.lukashornych.hole.idea.hole.HoleModifyClient;
 import io.github.lukashornych.hole.idea.hole.HoleSettingsClient;
 import io.github.lukashornych.hole.idea.model.InstanceInfo;
+import io.github.lukashornych.hole.idea.process.CliException;
+import io.github.lukashornych.hole.idea.process.CliRunner;
 import io.github.lukashornych.hole.idea.session.SandboxSession;
 import io.github.lukashornych.hole.idea.session.SandboxSessionManager;
 import io.github.lukashornych.hole.idea.session.SessionPresentation;
@@ -24,6 +30,7 @@ import javax.swing.Timer;
 import java.awt.BorderLayout;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Body of one sandbox tab: the header and, below it, the terminal widget connected to the `hole` process.
@@ -46,6 +53,8 @@ import java.time.Instant;
  */
 final class SandboxTabPanel extends HoleToolWindowView.Tab {
 
+    private static final Logger LOG = Logger.getInstance(SandboxTabPanel.class);
+
     private final Project project;
     private final SandboxSession session;
     private final SandboxSessionManager manager;
@@ -57,6 +66,8 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
     private JBTerminalWidget widget;
     /** Last model shown in the header; {@code null} before the first render. */
     private HeaderModel rendered;
+    /** The git checkout of the project directory; looked up in the background on connect. EDT only. */
+    private HeaderModel.Checkout checkout = HeaderModel.Checkout.NONE;
 
     SandboxTabPanel(@NotNull Project project, @NotNull SandboxSession session, @NotNull SandboxSessionManager manager) {
         this.project = project;
@@ -82,6 +93,7 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
         createWidget();
         render();
         this.timer.start();
+        detectWorktree();
     }
 
     /**
@@ -120,11 +132,46 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
             // the window belongs to one instance: a restart, a stop or the exit ends it
             closeNetwork();
         }
-        final HeaderModel model = HeaderModel.of(snapshot, this.session.launch().debug(), Instant.now());
+        final HeaderModel model = HeaderModel.of(snapshot, this.session.launch().debug(), this.checkout, Instant.now());
         if (!model.equals(this.rendered)) {
             this.rendered = model;
             this.header.render(model);
         }
+    }
+
+    /**
+     * Finds out whether the project directory lies in the main or a linked git worktree, which the header shows next
+     * to the project folder. Decided by git, not by comparing with the IDE project root: the IDE may itself be opened in a worktree.
+     * The directory does not change on a restart, so once per tab.
+     */
+    private void detectWorktree() {
+        final Path directory = this.session.launch().projectDirectory();
+        // not Disposer.isDisposed(parent), which is deprecated
+        final AtomicBoolean disposed = new AtomicBoolean();
+        Disposer.register(this.parent, () -> disposed.set(true));
+        ApplicationManager.getApplication().executeOnPooledThread(() -> {
+            HeaderModel.Checkout found;
+            try {
+                found = new WorktreeLister(new CliRunner(CliRunner.SHELL_ENVIRONMENT)).isLinked(directory)
+                    ? HeaderModel.Checkout.WORKTREE
+                    : HeaderModel.Checkout.MAIN;
+            } catch (CliException e) {
+                // not a git repository, or git missing: no checkout kind shown
+                LOG.debug("No worktrees for " + directory + ": " + e.getMessage());
+                found = HeaderModel.Checkout.NONE;
+            } catch (RuntimeException e) {
+                LOG.warn("Could not list worktrees for " + directory, e);
+                found = HeaderModel.Checkout.NONE;
+            }
+            final HeaderModel.Checkout result = found;
+            ApplicationManager.getApplication().invokeLater(() -> {
+                if (disposed.get()) {
+                    return;
+                }
+                this.checkout = result;
+                render();
+            }, ModalityState.any());
+        });
     }
 
     /**
