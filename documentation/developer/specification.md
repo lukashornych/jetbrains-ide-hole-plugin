@@ -91,7 +91,10 @@ The **header** shows:
   exist. Create it from Hole's template?* and runs `hole settings create …` (a file created meanwhile is simply
   opened). Other failures (e.g. a relative `HOLE_SETTINGS_FILE`) end in a balloon with Hole's message. A worktree
   sandbox opens its worktree's file,
-- the absolute project path,
+- the project folder name followed by its git checkout kind: `app (main)` for the main worktree, and for a linked
+  worktree also its parent folder, e.g. `app-worktrees/fix (worktree)`. The absolute path is in the tooltip. The kind
+  is decided once per tab by `git worktree list --porcelain` in the background; until then, and when the folder is
+  not in a git repository or git is missing or fails, only the folder name is shown,
 - a *Debug Shell* pill for debug runs,
 - a small toolbar at the right end with **Restart** and **Network…**, both enabled only while the sandbox runs.
 

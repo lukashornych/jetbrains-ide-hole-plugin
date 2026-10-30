@@ -32,7 +32,7 @@ All packages below are under `io.github.lukashornych.hole.idea`.
 | `storage` | `PersistentStateComponent` services: plugin settings and favourites of both scopes. Null handling of persisted state lives here. |
 | `ui` | Tool window, sandbox tabs and their header, New Sandbox / Edit Favourites dialogs with the shared `SandboxForm`, favourite starts (`FavouriteStarter`: project root or a git worktree from `StartLocations`), settings page, notifications, terminal path links and image paste key handling. |
 | `ui/network` | The runtime Network window over `hole modify`. |
-| `model`, `git` | Immutable value records (`SandboxConfig`, `Favourite`, `InstanceInfo`, …) and `git worktree list --porcelain` parsing. |
+| `model`, `git` | Immutable value records (`SandboxConfig`, `Favourite`, `InstanceInfo`, …) and `git worktree list --porcelain` parsing, incl. whether a directory lies in a linked worktree (shown in the sandbox header). |
 
 Dependencies point downwards: `ui` → `session` → `hole` → `process`; `model` is used everywhere and depends on
 nothing. `session` holds no Swing code — it talks to the tool window through the `SessionView` and
