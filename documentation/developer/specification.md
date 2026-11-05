@@ -91,7 +91,10 @@ The **header** shows:
   exist. Create it from Hole's template?* and runs `hole settings create …` (a file created meanwhile is simply
   opened). Other failures (e.g. a relative `HOLE_SETTINGS_FILE`) end in a balloon with Hole's message. A worktree
   sandbox opens its worktree's file,
-- the absolute project path,
+- the project folder name followed by its git checkout kind: `app (main)` for the main worktree, and for a linked
+  worktree also its parent folder, e.g. `app-worktrees/fix (worktree)`. The absolute path is in the tooltip. The kind
+  is decided once per tab by `git worktree list --porcelain` in the background; until then, and when the folder is
+  not in a git repository or git is missing or fails, only the folder name is shown,
 - a *Debug Shell* pill for debug runs,
 - a small toolbar at the right end with **Restart** and **Network…**, both enabled only while the sandbox runs.
 
@@ -233,6 +236,19 @@ Based on the dialog, the plugin builds a `hole start` command line and runs `hol
 tab's terminal (no intermediate shell), with the IDE project root as the working directory. The process ending is
 therefore the signal that the sandbox is gone.
 
+**Environment.** Hole runs with the environment of the user's login shell, the one a new terminal tab has: Hole
+expands `$VAR` in its settings (`environment`, agent arguments) from its own environment, and finds `docker`/`podman`
+on its `PATH`. Before **every start and restart** the plugin reads it anew by running `$SHELL -l -i -c` (with
+`INTELLIJ_ENVIRONMENT_READER=true`, at most 10 s), so a changed `~/.zshrc` applies to the next start without an IDE
+restart. A read taking longer than a second shows a cancellable background progress *Reading shell environment*;
+cancelling it cancels the start. When the environment cannot be read (the shell fails, times out or is missing),
+nothing is started and a dialog says *Could not read the environment of your shell (`<shell>`: `<reason>`). Variables
+from your shell profile would be missing in the sandbox.* with **Retry** (the same start or restart again) and
+**Cancel**; a restart whose read fails leaves the running sandbox alone. The other Hole and git calls (`hole list`,
+`hole settings`, `hole modify`, `git worktree list`) use the most recently read environment; before the first
+successful read they use the environment the IDE loaded at its start. A running sandbox keeps the environment it
+was started with.
+
 The plugin generates the 6-character instance ID (`[a-z0-9]`) itself and passes it with `--instance-id`. The header
 metadata and the lifecycle status are read by polling `hole list --json --no-gc` (one unfiltered call for all
 sandboxes, fanned out by instance ID; every second while starting, less often afterwards). `--no-gc` keeps each poll from running Hole's cleanup of dead sandboxes, which costs several container
@@ -265,7 +281,8 @@ writes Ctrl-C (`0x03`) to the pty.
 - **Restart** (header toolbar or Docker pill, only while running): SIGINT to the process group like a close; once
   the process has exited, `hole start` runs again **in the same tab** with a **new instance ID** (after Force Stop or
   Hole's relay timeout the old one is still taken), the same mode (agent / debug shell), the possibly changed config,
-  and a fresh probe of Hole (executable and environment may have changed after `hole update`). The terminal widget is
+  a freshly read shell environment and a fresh probe of Hole (executable and environment may have changed after
+  `hole update`). The terminal widget is
   replaced, so the old output is gone. Force Stop during a restart only kills the old process; the restart goes on. A
   close request during a pending restart wins and closes the tab. When the new process cannot be started, the tab
   shows *Exited with code N* and a notification tells the user that the old sandbox is gone.

@@ -84,12 +84,35 @@ class WorktreeListerTest {
         assertEquals(worktree.toRealPath().toString(), worktrees.get(1).path());
         assertEquals("feature", worktrees.get(1).branch());
         assertNotNull(worktrees.get(1).head());
+        final WorktreeLister lister = new WorktreeLister(new CliRunner(WorktreeListerTest::environment));
+        assertFalse(lister.isLinked(repo));
+        assertTrue(lister.isLinked(worktree));
 
         // a removed worktree directory makes the entry prunable; it is not suggested
         deleteRecursively(worktree);
         final List<Worktree> afterRemoval = new WorktreeLister(new CliRunner(WorktreeListerTest::environment)).list(repo);
         assertEquals(1, afterRemoval.size());
         assertFalse(afterRemoval.get(0).prunable());
+    }
+
+    @Test
+    void linkedIsDecidedByTheInnermostContainingWorktree() {
+        final List<Worktree> worktrees = WorktreeLister.parse("""
+            worktree /work/app
+            HEAD abc
+
+            worktree /work/app-worktrees/fix
+            HEAD def
+
+            worktree /work/app/.worktrees/nested
+            HEAD 123
+            """);
+        assertFalse(WorktreeLister.isLinked(worktrees, Path.of("/work/app")));
+        assertFalse(WorktreeLister.isLinked(worktrees, Path.of("/work/app/module")), "a subdirectory of the main worktree");
+        assertTrue(WorktreeLister.isLinked(worktrees, Path.of("/work/app-worktrees/fix")));
+        assertTrue(WorktreeLister.isLinked(worktrees, Path.of("/work/app/.worktrees/nested/module")), "nested in the main checkout");
+        assertFalse(WorktreeLister.isLinked(worktrees, Path.of("/work/app-worktrees")), "contained in none of them");
+        assertFalse(WorktreeLister.isLinked(List.of(), Path.of("/work/app")));
     }
 
     @Test

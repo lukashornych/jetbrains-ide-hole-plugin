@@ -2,10 +2,12 @@ package io.github.lukashornych.hole.idea.ui;
 
 import io.github.lukashornych.hole.idea.model.InstanceInfo;
 import io.github.lukashornych.hole.idea.session.SandboxSession;
+import io.github.lukashornych.hole.idea.session.SessionPresentation;
 import io.github.lukashornych.hole.idea.session.SessionState;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 
@@ -21,7 +23,9 @@ import java.time.Instant;
  * @param globalUsed      the sandbox uses a global settings file (a `global(<path>)` label)
  * @param projectUsed     the sandbox uses a project settings file (a `project` or `project(<path>)` label)
  * @param settingsTooltip settings labels as in `hole list`, e.g. `global(~/.hole/settings.json)+project`
- * @param project         absolute project path
+ * @param project         project folder name with the git checkout kind, e.g. `app (main)`; a linked worktree with its
+ *                        parent folder, e.g. `app-worktrees/fix (worktree)`
+ * @param projectPath     absolute project path (tooltip)
  * @param stopping        "Stopping for N s" or "Restarting for N s", {@code null} when not stopping
  * @param forceStop       offer Force Stop
  * @param forceStopCloses Force Stop closes the tab (not during a restart, which goes on after the kill)
@@ -40,6 +44,7 @@ public record HeaderModel(
     boolean projectUsed,
     @NotNull String settingsTooltip,
     @NotNull String project,
+    @NotNull String projectPath,
     @Nullable String stopping,
     boolean forceStop,
     boolean forceStopCloses,
@@ -60,10 +65,11 @@ public record HeaderModel(
      *
      * @param snapshot session state
      * @param debug    the session runs a debug shell
+     * @param checkout the git checkout the project directory lies in
      * @param now      current time (stopping timer)
      */
     @NotNull
-    public static HeaderModel of(@NotNull SandboxSession.Snapshot snapshot, boolean debug, @NotNull Instant now) {
+    public static HeaderModel of(@NotNull SandboxSession.Snapshot snapshot, boolean debug, @NotNull Checkout checkout, @NotNull Instant now) {
         final InstanceInfo info = snapshot.info();
         final boolean alive = snapshot.state().isAlive();
         final boolean running = snapshot.state() == SessionState.RUNNING;
@@ -88,6 +94,7 @@ public record HeaderModel(
             info != null && info.settings().stream().anyMatch(
                 label -> label.equals(PROJECT_LABEL) || label.startsWith(PROJECT_LABEL + "(")),
             info == null ? "" : info.settingsLabel().isEmpty() ? NO_SETTINGS : info.settingsLabel(),
+            info == null ? "" : projectLabel(info.projectPath(), checkout),
             info == null ? "" : info.projectPath(),
             stopping,
             forceStop,
@@ -96,6 +103,40 @@ public record HeaderModel(
             running,
             exited
         );
+    }
+
+    /**
+     * Returns the project folder name, for a linked worktree prefixed with its parent folder, which usually tells the
+     * repository apart, followed by the checkout kind (e.g. `app-worktrees/fix (worktree)`).
+     */
+    @NotNull
+    static String projectLabel(@NotNull String projectPath, @NotNull Checkout checkout) {
+        if (projectPath.isEmpty()) {
+            return "";
+        }
+        final Path path = Path.of(projectPath);
+        final String folder = SessionPresentation.projectFolder(path);
+        final Path parent = path.getParent();
+        final String label = checkout == Checkout.WORKTREE && parent != null && parent.getFileName() != null
+            ? parent.getFileName() + "/" + folder
+            : folder;
+        return switch (checkout) {
+            case NONE -> label;
+            case MAIN -> label + " (main)";
+            case WORKTREE -> label + " (worktree)";
+        };
+    }
+
+    /**
+     * The git checkout a project directory lies in.
+     */
+    public enum Checkout {
+        /** Not a git repository, git failed, or not known yet. */
+        NONE,
+        /** The main worktree of a repository. */
+        MAIN,
+        /** A linked worktree. */
+        WORKTREE
     }
 
     @NotNull

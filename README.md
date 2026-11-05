@@ -73,6 +73,22 @@ Project favourites are stored in `.idea/hole.xml`, so they can be shared through
 Closing a tab stops its sandbox. When Hole fails to start, the tab stays open with Hole's output, so you can read the
 error.
 
+### Shell environment
+
+Hole runs with the environment of your login shell, so variables from `~/.zshrc` or `~/.bash_profile` (e.g. a
+`$PROJECT_PATH` referenced in Hole's settings) reach the sandbox. The plugin reads it before every start, so changes
+to your shell profile apply to the next sandbox without restarting the IDE.
+
+If a start shows *Could not read the environment of your shell*, your shell profile failed, or did not finish within
+10 seconds — typically because it waits for input or attaches tmux/zellij. The plugin sets
+`INTELLIJ_ENVIRONMENT_READER=true` while reading, like the IDE itself does, so you can skip such parts:
+
+```sh
+if [ -z "$INTELLIJ_ENVIRONMENT_READER" ]; then
+    # interactive-only setup, e.g. tmux auto-attach
+fi
+```
+
 The full behaviour is described in the [specification](documentation/developer/specification.md).
 
 ## Contributing

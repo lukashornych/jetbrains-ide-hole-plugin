@@ -60,6 +60,15 @@ tests over mocks.** When a test needs Hole behaviour the script does not have ye
 `FakeHoleScriptTest` pins the script's own behaviour, so a change to it that breaks other tests shows up there
 first.
 
+### The fake shell
+
+`src/test/resources/fake-shell/shell` stands in for the user's login shell when `process.ShellEnvironment` reads the
+environment: it ignores `-l`/`-i`, sources an rc file and evaluates the `-c` command. Switches (`FAKE_SHELL_NOISE`,
+`FAKE_SHELL_DELAY`, `FAKE_SHELL_HANG`, `FAKE_SHELL_EXIT`) are documented in its header. Tests use it through
+`testutil/FakeShell`: `export(name, value)` appends to the rc file, so a test can change what the next read sees, and
+`calls()` returns the logged invocations. Point `ShellEnvironment` at it by putting its path into `SHELL` of the base
+environment (see `SandboxSessionManagerTest`).
+
 ### Platform tests
 
 Most tests are plain JUnit 5 tests, because the logic is kept free of Swing (see

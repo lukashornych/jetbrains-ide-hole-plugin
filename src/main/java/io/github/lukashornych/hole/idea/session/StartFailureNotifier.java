@@ -14,6 +14,16 @@ public interface StartFailureNotifier {
     void cannotStart(@NotNull HoleCapability capability);
 
     /**
+     * The environment of the user's shell could not be read, so nothing was started (or restarted). The user may
+     * retry; there is no start without that environment.
+     *
+     * @param shell  the shell that was run
+     * @param reason why the read failed (exit code, timeout), without environment values or rc-file output
+     * @param retry  runs the same start or restart again
+     */
+    void environmentUnavailable(@NotNull String shell, @NotNull String reason, @NotNull Runnable retry);
+
+    /**
      * The `hole` process could not be spawned.
      *
      * @param reason message of the failure, without the command line

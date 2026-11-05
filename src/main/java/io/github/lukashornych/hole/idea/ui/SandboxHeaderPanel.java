@@ -60,7 +60,7 @@ final class SandboxHeaderPanel extends JPanel {
     private final Skeleton settingsSkeleton = new Skeleton(150);
     private final JComponent projectField;
     private final JBLabel project = value();
-    private final Skeleton projectSkeleton = new Skeleton(180);
+    private final Skeleton projectSkeleton = new Skeleton(90);
     private final JBLabel status = new JBLabel();
     private final JButton forceStop = new JButton("Force Stop");
     private final JBLabel forceStopHint = new JBLabel("Closes the tab; Hole's teardown continues in the background.");
@@ -168,7 +168,7 @@ final class SandboxHeaderPanel extends JPanel {
         showSettingsLink(this.projectSettings, model.projectUsed(), "project");
         this.settingsField.setToolTipText(model.settingsTooltip().isEmpty() ? null : "Settings used: " + model.settingsTooltip());
         this.project.setText(model.project());
-        this.project.setToolTipText(model.project());
+        this.project.setToolTipText(model.projectPath().isEmpty() ? null : model.projectPath());
 
         final String text = model.exited() != null ? model.exited() : model.stopping();
         this.status.setText(text == null ? "" : text);

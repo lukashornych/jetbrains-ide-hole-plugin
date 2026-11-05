@@ -24,7 +24,7 @@ class HeaderModelTest {
 
     @Test
     void skeletonsUntilFirstMetadata() {
-        final HeaderModel model = HeaderModel.of(snapshot(SessionState.STARTING, null, null, null), true, NOW);
+        final HeaderModel model = HeaderModel.of(snapshot(SessionState.STARTING, null, null, null), true, HeaderModel.Checkout.NONE, NOW);
         assertEquals("r8tq2c", model.instanceId(), "the plugin chose the ID, so it is known at once");
         assertTrue(model.debug());
         assertTrue(model.pending());
@@ -35,15 +35,33 @@ class HeaderModelTest {
 
     @Test
     void metadataFields() {
-        final HeaderModel model = HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, NOW);
+        final HeaderModel model = HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, HeaderModel.Checkout.MAIN, NOW);
         assertFalse(model.pending());
         assertTrue(model.metadata());
         assertTrue(model.docker());
         assertEquals("global(~/.hole/settings.json)+project", model.settingsTooltip());
         assertTrue(model.globalUsed());
         assertTrue(model.projectUsed());
-        assertEquals("/work/acme-cms", model.project());
+        assertEquals("acme-cms (main)", model.project(), "the main repository shows only its folder name");
+        assertEquals("/work/acme-cms", model.projectPath());
         assertFalse(model.debug());
+    }
+
+    @Test
+    void linkedWorktreeShowsItsParentFolderToo() {
+        final HeaderModel model = HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, HeaderModel.Checkout.WORKTREE, NOW);
+        assertEquals("work/acme-cms (worktree)", model.project());
+        assertEquals("/work/acme-cms", model.projectPath(), "the full path stays in the tooltip");
+    }
+
+    @Test
+    void projectLabel() {
+        assertEquals("app (main)", HeaderModel.projectLabel("/home/user/app", HeaderModel.Checkout.MAIN));
+        assertEquals("app-worktrees/fix (worktree)", HeaderModel.projectLabel("/home/user/app-worktrees/fix", HeaderModel.Checkout.WORKTREE));
+        assertEquals("app", HeaderModel.projectLabel("/home/user/app", HeaderModel.Checkout.NONE), "not a git repository, or not known yet");
+        assertEquals("app (worktree)", HeaderModel.projectLabel("/app", HeaderModel.Checkout.WORKTREE), "no parent folder name under the root");
+        assertEquals("/ (worktree)", HeaderModel.projectLabel("/", HeaderModel.Checkout.WORKTREE));
+        assertEquals("", HeaderModel.projectLabel("", HeaderModel.Checkout.WORKTREE));
     }
 
     @Test
@@ -63,10 +81,10 @@ class HeaderModelTest {
 
     @Test
     void stoppingTimerAndForceStopAfterThirtySeconds() {
-        final HeaderModel early = HeaderModel.of(snapshot(SessionState.STOPPING, INFO, null, NOW.minusSeconds(29)), false, NOW);
+        final HeaderModel early = HeaderModel.of(snapshot(SessionState.STOPPING, INFO, null, NOW.minusSeconds(29)), false, HeaderModel.Checkout.NONE, NOW);
         assertEquals("Stopping for 29 s", early.stopping());
         assertFalse(early.forceStop());
-        final HeaderModel late = HeaderModel.of(snapshot(SessionState.STOPPING, INFO, null, NOW.minusSeconds(34)), false, NOW);
+        final HeaderModel late = HeaderModel.of(snapshot(SessionState.STOPPING, INFO, null, NOW.minusSeconds(34)), false, HeaderModel.Checkout.NONE, NOW);
         assertEquals("Stopping for 34 s", late.stopping());
         assertTrue(late.forceStop());
         assertTrue(late.forceStopCloses(), "Force Stop of a close request closes the tab");
@@ -74,11 +92,11 @@ class HeaderModelTest {
 
     @Test
     void restartShowsRestartingTimerAndForceStopKeepsTheTab() {
-        final HeaderModel early = HeaderModel.of(restarting(NOW.minusSeconds(5)), false, NOW);
+        final HeaderModel early = HeaderModel.of(restarting(NOW.minusSeconds(5)), false, HeaderModel.Checkout.NONE, NOW);
         assertEquals("Restarting for 5 s", early.stopping());
         assertFalse(early.forceStop());
         assertNull(early.exited(), "no exit code during a restart");
-        final HeaderModel late = HeaderModel.of(restarting(NOW.minusSeconds(31)), false, NOW);
+        final HeaderModel late = HeaderModel.of(restarting(NOW.minusSeconds(31)), false, HeaderModel.Checkout.NONE, NOW);
         assertEquals("Restarting for 31 s", late.stopping());
         assertTrue(late.forceStop());
         assertFalse(late.forceStopCloses(), "no \"Closes the tab\" hint: the restart goes on after Force Stop");
@@ -86,7 +104,7 @@ class HeaderModelTest {
 
     @Test
     void restartAndDockerToggleOnlyWhileRunning() {
-        final HeaderModel running = HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, NOW);
+        final HeaderModel running = HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, HeaderModel.Checkout.NONE, NOW);
         assertTrue(running.restart());
         assertTrue(running.dockerToggle());
         assertTrue(running.network());
@@ -98,7 +116,7 @@ class HeaderModelTest {
             snapshot(SessionState.EXITED, INFO, 1, null),
             snapshot(SessionState.CLOSED, INFO, 0, null)
         )) {
-            final HeaderModel model = HeaderModel.of(other, false, NOW);
+            final HeaderModel model = HeaderModel.of(other, false, HeaderModel.Checkout.NONE, NOW);
             assertFalse(model.restart(), other.toString());
             assertFalse(model.dockerToggle(), other.toString());
             assertFalse(model.network(), other.toString());
@@ -107,7 +125,7 @@ class HeaderModelTest {
 
     @Test
     void exitedShowsCodeWithoutSkeletons() {
-        final HeaderModel model = HeaderModel.of(snapshot(SessionState.EXITED, null, 1, null), false, NOW);
+        final HeaderModel model = HeaderModel.of(snapshot(SessionState.EXITED, null, 1, null), false, HeaderModel.Checkout.NONE, NOW);
         assertEquals("Exited with code 1", model.exited());
         assertFalse(model.pending(), "no endless skeletons for a sandbox Hole never listed");
         assertNull(model.stopping());
@@ -117,12 +135,12 @@ class HeaderModelTest {
     void modelOfAnEndedSandboxDoesNotChangeWithTime() {
         // the tab's 1 s timer re-renders only on a changed model and skips EXITED / CLOSED
         assertEquals(
-            HeaderModel.of(snapshot(SessionState.EXITED, INFO, 1, null), false, NOW),
-            HeaderModel.of(snapshot(SessionState.EXITED, INFO, 1, null), false, NOW.plusSeconds(90))
+            HeaderModel.of(snapshot(SessionState.EXITED, INFO, 1, null), false, HeaderModel.Checkout.NONE, NOW),
+            HeaderModel.of(snapshot(SessionState.EXITED, INFO, 1, null), false, HeaderModel.Checkout.NONE, NOW.plusSeconds(90))
         );
         assertEquals(
-            HeaderModel.of(snapshot(SessionState.CLOSED, INFO, 0, null), false, NOW),
-            HeaderModel.of(snapshot(SessionState.CLOSED, INFO, 0, null), false, NOW.plusSeconds(90))
+            HeaderModel.of(snapshot(SessionState.CLOSED, INFO, 0, null), false, HeaderModel.Checkout.NONE, NOW),
+            HeaderModel.of(snapshot(SessionState.CLOSED, INFO, 0, null), false, HeaderModel.Checkout.NONE, NOW.plusSeconds(90))
         );
     }
 
@@ -130,8 +148,8 @@ class HeaderModelTest {
     void modelOfARunningSandboxDoesNotChangeWithTime() {
         // no uptime any more: the 1 s timer re-renders a running sandbox only when something else changed
         assertEquals(
-            HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, NOW),
-            HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, NOW.plusSeconds(90))
+            HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, HeaderModel.Checkout.NONE, NOW),
+            HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, HeaderModel.Checkout.NONE, NOW.plusSeconds(90))
         );
     }
 
@@ -144,7 +162,7 @@ class HeaderModelTest {
         final InstanceInfo info = HoleListParser.parse(
             "[{\"instanceId\": \"r8tq2c\", \"status\": \"running\", \"projectPath\": \"/work/acme-cms\", \"settings\": [" + labels + "]}]"
         ).get(0);
-        return HeaderModel.of(snapshot(SessionState.RUNNING, info, null, null), false, NOW);
+        return HeaderModel.of(snapshot(SessionState.RUNNING, info, null, null), false, HeaderModel.Checkout.NONE, NOW);
     }
 
     private static SandboxSession.Snapshot restarting(Instant stoppingSince) {

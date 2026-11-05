@@ -18,6 +18,8 @@
 #   FAKE_HOLE_START_EXIT=N      `start` fails with exit code N right after printing the instance ID
 #   FAKE_HOLE_HANG=1            `start` ignores SIGINT (Force Stop test; only SIGKILL ends it)
 #   FAKE_HOLE_RUNNING_AFTER=S   seconds `start` stays in status `starting` (default 1)
+#   FAKE_HOLE_PRINT_ENV=NAME    `start` prints `NAME=<value>` of its own environment right after the instance ID
+#                               (`NAME=` when unset), so a test sees the environment a sandbox was started with
 #   FAKE_HOLE_EXIT_AFTER=S      `start` ends by itself after S seconds with exit code 0 (like `/exit`)
 #   FAKE_HOLE_LIST_DELAY=S      `list` sleeps S seconds before answering (concurrency tests)
 #   FAKE_HOLE_REQUIRE_LIBRARIES=1  `start` fails when the host directory of a `--library PATH[:MOUNT][:rw]` is
@@ -264,6 +266,9 @@ cmd_start() {
 
     write_instance "$file" starting
     echo "Instance ID: $id"
+    if [ -n "${FAKE_HOLE_PRINT_ENV:-}" ]; then
+        echo "$FAKE_HOLE_PRINT_ENV=$(printenv "$FAKE_HOLE_PRINT_ENV" || true)"
+    fi
 
     if [ -n "${FAKE_HOLE_START_EXIT:-}" ]; then
         rm -f "$file"

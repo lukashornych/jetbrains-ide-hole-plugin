@@ -5,6 +5,7 @@ import io.github.lukashornych.hole.idea.process.CliResult;
 import io.github.lukashornych.hole.idea.process.CliRunner;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -45,6 +46,40 @@ public final class WorktreeLister {
             throw new CliException(result, "`git worktree list` failed");
         }
         return parse(result.stdout()).stream().filter(worktree -> !worktree.prunable()).toList();
+    }
+
+    /**
+     * Returns whether {@code directory} lies in a linked worktree rather than in the main one.
+     *
+     * @throws CliException when git is not installed, the directory is not in a git repository, or git fails
+     */
+    public boolean isLinked(@NotNull Path directory) throws CliException {
+        Path real;
+        try {
+            // git prints physical paths (e.g. /tmp is a symlink on macOS)
+            real = directory.toRealPath();
+        } catch (IOException e) {
+            real = directory.toAbsolutePath().normalize();
+        }
+        return isLinked(list(directory), real);
+    }
+
+    /**
+     * Returns whether {@code directory} lies in a linked worktree: the innermost worktree containing it is not the
+     * first one, which git always lists as the main worktree. A directory in none of them counts as the main one.
+     */
+    public static boolean isLinked(@NotNull List<Worktree> worktrees, @NotNull Path directory) {
+        int containing = -1;
+        int depth = -1;
+        for (int i = 0; i < worktrees.size(); i++) {
+            final Path path = Path.of(worktrees.get(i).path());
+            // innermost wins: a linked worktree may be nested inside the main checkout
+            if (directory.startsWith(path) && path.getNameCount() > depth) {
+                containing = i;
+                depth = path.getNameCount();
+            }
+        }
+        return containing > 0;
     }
 
     /**

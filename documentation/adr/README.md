@@ -33,6 +33,7 @@ filename date that disagrees with `date:`.
 
 | Date | Record | Kind | Status | Refs |
 |------|--------|------|--------|------|
+| 2026-11-04 | [The plugin reads the user's login-shell environment itself before every start, and does not start without it](2026-11-04-plugin-reads-shell-environment.md) | fix | proposed | — |
 | 2026-10-28 | [Favourites store no project path; the project root or a git worktree is chosen at start](2026-10-28-favourite-project-path-chosen-at-start.md) | feature | accepted | — |
 
 <!-- ADR-INDEX:END -->
