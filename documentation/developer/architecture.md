@@ -12,7 +12,9 @@ All packages below are under `io.github.lukashornych.hole.idea`.
   (`~/.hole/instances/…`), never computes settings file paths itself and never parses the human-readable output of
   `hole start` or `hole list`. Everything it knows comes from Hole's machine-readable CLI contract: `hole version`,
   `hole list --json`, `hole settings get|create` and `hole modify … --json`, all introduced or stabilised in
-  **Hole 2.6.0**, the minimum supported version.
+  **Hole 2.6.0**, the minimum supported version. The one place the plugin reads and writes settings file content
+  itself is the Network window's saved entries (Hole has no CLI for it): Hole still names the files, and only the
+  top-level array of the two `hole modify` settings is read, extended or reduced — see [the ADR](../adr/2026-11-05-network-entries-saved-to-settings-by-the-plugin.md).
 - **No intermediate shell.** Every process — `hole start` included — is started from an argument list, never from a
   shell string. `hole start` runs directly as the process of the tab's pty, so its exit is the signal that the
   sandbox is gone. The only shell the plugin starts is the environment reader below, and its output never reaches a
@@ -47,7 +49,7 @@ All packages below are under `io.github.lukashornych.hole.idea`.
 | `session` | The lifecycle of one sandbox (`SandboxSession`) and of all sandboxes of a project (`SandboxSessionManager`); the pty (`HoleTerminalRunner`, `HoleTtyConnector`); process-group signals (`ProcessSignaller`); image paste folders (`PasteDirectory`, `PasteStore`). |
 | `storage` | `PersistentStateComponent` services: plugin settings and favourites of both scopes. Null handling of persisted state lives here. |
 | `ui` | Tool window, sandbox tabs and their header, New Sandbox / Edit Favourites dialogs with the shared `SandboxForm`, favourite starts (`FavouriteStarter`: project root or a git worktree from `StartLocations`), settings page, notifications, terminal path links and image paste key handling. |
-| `ui/network` | The runtime Network window over `hole modify`. |
+| `ui/network` | The runtime Network window over `hole modify`; `SettingsEntrySaver` reads and changes its entries in the settings files (`hole.SettingsEntries` edits the JSON). |
 | `model`, `git` | Immutable value records (`SandboxConfig`, `Favourite`, `InstanceInfo`, …) and `git worktree list --porcelain` parsing, incl. whether a directory lies in a linked worktree (shown in the sandbox header). |
 
 Dependencies point downwards: `ui` → `session` → `hole` → `process`; `model` is used everywhere and depends on
@@ -181,6 +183,7 @@ The UI is split into a Swing-free model and a thin Swing part, so the logic is t
 | `StartLocations` | `FavouriteStarter` |
 | `SettingsFileResolver` (question as a callback) | `SettingsFileOpener`, `SettingsFileLinks` |
 | `BlockedSuggestions` | `NetworkDialog`, `EntryInputDialog` |
+| `SettingsEntries` (settings JSON edit) | `SettingsEntrySaver` (IDE document) |
 
 `SessionServices` bundles what a session needs from outside (pty runner, signaller, metadata source, ID generator,
 clock), so tests pass the real implementations running against the fake `hole` script. See

@@ -13,7 +13,9 @@ import io.github.lukashornych.hole.idea.git.WorktreeLister;
 import io.github.lukashornych.hole.idea.hole.HoleExecutable;
 import io.github.lukashornych.hole.idea.hole.HoleModifyClient;
 import io.github.lukashornych.hole.idea.hole.HoleSettingsClient;
+import io.github.lukashornych.hole.idea.hole.SettingsFileResolver;
 import io.github.lukashornych.hole.idea.model.InstanceInfo;
+import io.github.lukashornych.hole.idea.model.NetworkSetting;
 import io.github.lukashornych.hole.idea.process.CliException;
 import io.github.lukashornych.hole.idea.process.CliRunner;
 import io.github.lukashornych.hole.idea.session.SandboxSession;
@@ -21,6 +23,7 @@ import io.github.lukashornych.hole.idea.session.SandboxSessionManager;
 import io.github.lukashornych.hole.idea.session.SessionPresentation;
 import io.github.lukashornych.hole.idea.session.SessionState;
 import io.github.lukashornych.hole.idea.ui.network.NetworkDialog;
+import io.github.lukashornych.hole.idea.ui.network.SettingsEntrySaver;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.terminal.JBTerminalSystemSettingsProvider;
@@ -30,6 +33,10 @@ import javax.swing.Timer;
 import java.awt.BorderLayout;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.EnumMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -63,6 +70,10 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
     private Disposable parent;
     /** The open Network window of this sandbox, {@code null} when none. EDT only. */
     private NetworkDialog network;
+    /** Instance whose {@link #removedFromSettings} these are; a restart starts a new one. EDT only. */
+    private String removedInstance;
+    /** Entries the Network window removed from the settings files of {@link #removedInstance}, per setting. */
+    private Map<NetworkSetting, Set<String>> removedFromSettings;
     private JBTerminalWidget widget;
     /** Last model shown in the header; {@code null} before the first render. */
     private HeaderModel rendered;
@@ -261,9 +272,19 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
         final HoleModifyClient client = new HoleModifyClient(
             launch.executable().toString(), HoleExecutable.getInstance().runner(), directory, snapshot.instanceId()
         );
+        final SettingsEntrySaver saver = new SettingsEntrySaver(this.project, new SettingsFileResolver(
+            new HoleSettingsClient(launch.executable().toString(), HoleExecutable.getInstance().runner())
+        ), directory);
         final String title = "Network" + SessionPresentation.SEPARATOR + SessionPresentation.projectFolder(directory)
             + SessionPresentation.SEPARATOR + launch.config().agentSpec() + " (" + snapshot.instanceId() + ")";
-        this.network = new NetworkDialog(this.project, client, title, info.flags().unrestricted(), this::restart);
+        if (!snapshot.instanceId().equals(this.removedInstance)) {
+            this.removedInstance = snapshot.instanceId();
+            this.removedFromSettings = new EnumMap<>(NetworkSetting.class);
+            for (NetworkSetting setting : NetworkSetting.values()) {
+                this.removedFromSettings.put(setting, ConcurrentHashMap.newKeySet());
+            }
+        }
+        this.network = new NetworkDialog(this.project, client, saver, this.removedFromSettings, title, info.flags().unrestricted(), this::restart);
         this.network.show();
     }
 

@@ -4,6 +4,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.ui.MessageDialogBuilder;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.components.JBLabel;
@@ -12,6 +13,7 @@ import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import io.github.lukashornych.hole.idea.hole.HoleModifyClient;
+import io.github.lukashornych.hole.idea.hole.HoleSettingsClient;
 import io.github.lukashornych.hole.idea.model.BlockedName;
 import io.github.lukashornych.hole.idea.model.NetworkEntry;
 import io.github.lukashornych.hole.idea.model.NetworkSetting;
@@ -34,14 +36,17 @@ import java.awt.event.MouseEvent;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
  * Non-modal window like Hole's `hole modify` TUI for one running sandbox: <i>Allowed</i> (`network.allow`),
  * <i>Host gateway</i> (`network.hostGatewayDomains`) and <i>Blocked</i> (`network.allow list-blocked`) with quick
- * allow prefills (see {@link BlockedSuggestions}).
+ * allow prefills (see {@link BlockedSuggestions}). An add can also be saved to the global or project settings file
+ * ({@link SettingsEntrySaver}) after it was applied at runtime.
  *
  * <p>Unlike the TUI, every confirmed add or remove is applied at once (one `hole modify … add|remove v1 v2…` call, one
  * gateway apply): the CLI cannot apply additions and removals together, so staging would not be atomic anyway. The
@@ -51,12 +56,21 @@ import java.util.function.Supplier;
  */
 public final class NetworkDialog extends DialogWrapper {
 
-    /** Hint for a selected entry that cannot be removed at runtime. */
-    static final String NOT_REMOVABLE = "From settings — edit the settings file and restart";
+    /** Hint for a selected entry of an agent. */
+    static final String FROM_AGENT = "From an agent — cannot be removed";
+    /** Hint for a selected entry from settings that is in neither file at the top level. */
+    static final String NOT_IN_FILES = "From settings, but not in the top level of either file (a profile?) — edit the file";
+    /** Hint for a selected entry this window removed from the settings files while it stays in force. */
+    static final String REMOVED_PENDING = "Removed from the settings files — in force until the sandbox restarts";
+    /** Hint for a selected entry that is in force from the settings. */
+    static final String NEEDS_RESTART = "From settings — Remove edits the settings file; closing this window offers a restart to apply it";
     /** Shown instead of the allow list and the blocked names in a sandbox started with `-u`. */
     static final String UNRESTRICTED = "Unrestricted network: everything is already allowed";
 
     private final HoleModifyClient client;
+    private final SettingsEntrySaver saver;
+    /** Canonical entries removed from the settings files of this instance, per setting; shared with the tab. */
+    private final Map<NetworkSetting, Set<String>> removedFromSettings;
     private final boolean unrestricted;
     private final Runnable onRestart;
     private final JBLabel banner = new JBLabel();
@@ -64,12 +78,17 @@ public final class NetworkDialog extends DialogWrapper {
     private final EntriesTab allowed;
     private final EntriesTab hostGateway;
     private final BlockedTab blocked;
+    /** An entry in force from settings was removed from a file: closing the window offers the restart. EDT only. */
+    private boolean restartOnClose;
     /** Calls in flight. EDT only. */
     private int running;
 
     /**
      * @param project      the IDE project
      * @param client       `hole modify` for this sandbox
+     * @param saver        saves added entries to the sandbox's settings files
+     * @param removedFromSettings entries removed from the settings files of this instance (thread-safe sets, kept by
+     *                     the sandbox tab so a reopened window still marks them)
      * @param title        e.g. {@code Network · my-project · claude (k3x9a2)}
      * @param unrestricted the sandbox runs with `-u`: the allow list and the blocked names are read-only / empty
      * @param onRestart    restarts the sandbox (offered when it was started by an older Hole)
@@ -77,12 +96,16 @@ public final class NetworkDialog extends DialogWrapper {
     public NetworkDialog(
         @NotNull Project project,
         @NotNull HoleModifyClient client,
+        @NotNull SettingsEntrySaver saver,
+        @NotNull Map<NetworkSetting, Set<String>> removedFromSettings,
         @NotNull String title,
         boolean unrestricted,
         @NotNull Runnable onRestart
     ) {
         super(project, true);
         this.client = client;
+        this.saver = saver;
+        this.removedFromSettings = removedFromSettings;
         this.unrestricted = unrestricted;
         this.onRestart = onRestart;
         this.allowed = new EntriesTab(NetworkSetting.ALLOW);
@@ -116,6 +139,30 @@ public final class NetworkDialog extends DialogWrapper {
             case APPLY_FAILED -> "The gateway did not apply the change; the previous allow list is still in force. " + message;
             case INVALID, OTHER -> message;
         };
+    }
+
+    @Override
+    protected void doOKAction() {
+        final boolean restart = this.restartOnClose;
+        super.doOKAction();
+        offerRestart(restart);
+    }
+
+    @Override
+    public void doCancelAction() {
+        final boolean restart = this.restartOnClose;
+        super.doCancelAction();
+        offerRestart(restart);
+    }
+
+    /**
+     * After the user closed the window (Close, Esc, the title bar), not when the sandbox tab closes it: removals from
+     * the settings apply on a restart, offered once for all of them with the usual confirmation.
+     */
+    private void offerRestart(boolean restart) {
+        if (restart && isDisposed()) {
+            this.onRestart.run();
+        }
     }
 
     @Override
@@ -210,10 +257,36 @@ public final class NetworkDialog extends DialogWrapper {
     }
 
     /**
+     * Returns the banner text when an add was applied at runtime but could not be saved to a settings file.
+     */
+    @NotNull
+    static String notSavedText(@NotNull HoleSettingsClient.Scope scope, @NotNull String reason) {
+        return "Allowed in this sandbox, but not saved to the " + scope.label() + " settings: " + reason;
+    }
+
+    /**
+     * Adds the values at runtime and, on success, saves them to the target's settings file. Blocking.
+     */
+    @NotNull
+    private HoleModifyClient.Result<Void> add(
+        @NotNull NetworkSetting setting, @NotNull List<String> values, @NotNull EntryInputDialog.Target target,
+        @NotNull ModalityState modality
+    ) {
+        final HoleModifyClient.Result<Void> added = this.client.add(setting, values);
+        final HoleSettingsClient.Scope scope = target.scope();
+        if (!added.isSuccess() || scope == null) {
+            return added;
+        }
+        return this.saver.save(scope, setting, values, modality)
+            .map(reason -> new HoleModifyClient.Result<Void>(null, HoleModifyClient.ModifyFailure.OTHER, notSavedText(scope, reason)))
+            .orElse(added);
+    }
+
+    /**
      * Opens the Add input; after an add the entry lists and the blocked names are reloaded.
      */
     private void openAdd(@NotNull NetworkSetting setting, @NotNull String prefill) {
-        new EntryInputDialog(getContentPanel(), setting, prefill, values -> this.client.add(setting, values), result -> {
+        new EntryInputDialog(getContentPanel(), setting, prefill, (values, target, modality) -> add(setting, values, target, modality), result -> {
             if (isDisposed()) {
                 return;
             }
@@ -229,13 +302,81 @@ public final class NetworkDialog extends DialogWrapper {
         }).show();
     }
 
+    /**
+     * Returns the confirmation of a Remove that changes a settings file: what happens to each entry.
+     */
+    @NotNull
+    static String removeQuestion(@NotNull List<NetworkTableModels.EntryRow> rows) {
+        final StringBuilder text = new StringBuilder("Remove ").append(rows.size() == 1 ? "this entry" : rows.size() + " entries").append("?\n");
+        for (NetworkTableModels.EntryRow row : rows) {
+            final List<String> where = new ArrayList<>();
+            if (row.entry().isRuntime()) {
+                where.add("this sandbox");
+            }
+            row.savedIn().forEach(scope -> where.add("the " + scope.label() + " settings file"));
+            text.append("\n").append(row.entry().entry()).append(" — from ").append(String.join(", ", where));
+        }
+        if (rows.stream().anyMatch(NetworkTableModels.EntryRow::needsRestart)) {
+            text.append("\n\nEntries from settings stay in force until the sandbox restarts; closing this window offers the restart.");
+        }
+        return text.toString();
+    }
+
+    /**
+     * Returns the hint under an entry list for the selected rows.
+     */
+    @NotNull
+    static String hint(@NotNull List<NetworkTableModels.EntryRow> rows) {
+        if (rows.stream().anyMatch(row -> !row.removable() && row.entry().source().startsWith("agent:"))) {
+            return FROM_AGENT;
+        }
+        if (rows.stream().anyMatch(NetworkTableModels.EntryRow::removed)) {
+            return REMOVED_PENDING;
+        }
+        if (rows.stream().anyMatch(row -> !row.removable())) {
+            return NOT_IN_FILES;
+        }
+        return rows.stream().anyMatch(NetworkTableModels.EntryRow::needsRestart) ? NEEDS_RESTART : " ";
+    }
+
+    /**
+     * Removes runtime entries in one gateway apply, then the entries from the settings files. Blocking.
+     */
+    @NotNull
+    private HoleModifyClient.Result<Void> remove(
+        @NotNull NetworkSetting setting, @NotNull List<NetworkTableModels.EntryRow> rows, @NotNull ModalityState modality
+    ) {
+        final List<String> runtime = rows.stream().map(NetworkTableModels.EntryRow::entry)
+            .filter(NetworkEntry::isRuntime).map(NetworkEntry::entry).toList();
+        if (!runtime.isEmpty()) {
+            final HoleModifyClient.Result<Void> removed = this.client.remove(setting, runtime);
+            if (!removed.isSuccess()) {
+                return removed;
+            }
+        }
+        final List<String> failures = new ArrayList<>();
+        for (NetworkTableModels.EntryRow row : rows) {
+            final int before = failures.size();
+            for (HoleSettingsClient.Scope scope : row.savedIn()) {
+                this.saver.remove(scope, setting, row.entry().entry(), modality).ifPresent(failures::add);
+            }
+            if (row.needsRestart() && failures.size() == before) {
+                this.removedFromSettings.get(setting).add(row.entry().entry());
+            }
+        }
+        return failures.isEmpty()
+            ? new HoleModifyClient.Result<>(null, null, "")
+            : new HoleModifyClient.Result<>(null, HoleModifyClient.ModifyFailure.OTHER, "Not removed from the settings: " + String.join("; ", failures));
+    }
+
     @NotNull
     private EntriesTab tab(@NotNull NetworkSetting setting) {
         return setting == NetworkSetting.ALLOW ? this.allowed : this.hostGateway;
     }
 
     /**
-     * Allowed or Host gateway: entries with their source, Add…, Remove (runtime entries only), Refresh.
+     * Allowed or Host gateway: entries with their source and the settings files they are saved in, Add…, Remove
+     * (runtime entries and entries in a settings file), Refresh.
      */
     private final class EntriesTab {
         private final NetworkSetting setting;
@@ -276,40 +417,68 @@ public final class NetworkDialog extends DialogWrapper {
 
         private void load() {
             this.table.getEmptyText().setText("Loading…");
-            call(() -> NetworkDialog.this.client.list(this.setting), result -> {
+            call(this::list, result -> {
                 this.model.set(result.value() == null ? List.of() : result.value());
             }, () -> this.table.getEmptyText().setText("No entries"));
         }
 
+        /**
+         * Hole's entries, each with the settings files it is saved in (Hole reports only `settings`). Blocking.
+         */
         @NotNull
-        private List<NetworkEntry> selected() {
-            final List<NetworkEntry> entries = new ArrayList<>();
-            for (int row : this.table.getSelectedRows()) {
-                entries.add(this.model.row(this.table.convertRowIndexToModel(row)));
+        private HoleModifyClient.Result<List<NetworkTableModels.EntryRow>> list() {
+            final HoleModifyClient.Result<List<NetworkEntry>> listed = NetworkDialog.this.client.list(this.setting);
+            if (!listed.isSuccess() || listed.value() == null) {
+                return new HoleModifyClient.Result<>(null, listed.failure(), listed.message());
             }
-            return entries;
+            final Map<HoleSettingsClient.Scope, Set<String>> saved = NetworkDialog.this.saver.savedEntries(this.setting);
+            return new HoleModifyClient.Result<>(NetworkTableModels.EntryRow.of(
+                listed.value(), saved, NetworkDialog.this.removedFromSettings.get(this.setting)
+            ), null, "");
+        }
+
+        @NotNull
+        private List<NetworkTableModels.EntryRow> selected() {
+            final List<NetworkTableModels.EntryRow> rows = new ArrayList<>();
+            for (int row : this.table.getSelectedRows()) {
+                rows.add(this.model.row(this.table.convertRowIndexToModel(row)));
+            }
+            return rows;
         }
 
         private void removeSelected() {
-            final List<NetworkEntry> entries = selected();
-            if (entries.isEmpty() || !entries.stream().allMatch(NetworkEntry::isRuntime)) {
+            final List<NetworkTableModels.EntryRow> rows = selected();
+            if (rows.isEmpty() || !rows.stream().allMatch(NetworkTableModels.EntryRow::removable)) {
                 return;
             }
-            // several rows: one call, one gateway apply
-            call(() -> NetworkDialog.this.client.remove(this.setting, entries.stream().map(NetworkEntry::entry).toList()), result -> {
+            final boolean editsSettings = rows.stream().anyMatch(row -> !row.savedIn().isEmpty());
+            if (editsSettings && !MessageDialogBuilder.yesNo("Remove Network Entries", removeQuestion(rows))
+                .yesText("Remove")
+                .noText("Cancel")
+                .ask(this.panel)) {
+                return;
+            }
+            final boolean needsRestart = rows.stream().anyMatch(NetworkTableModels.EntryRow::needsRestart);
+            final ModalityState modality = ModalityState.stateForComponent(this.panel);
+            call(() -> remove(this.setting, rows, modality), result -> {
                 clearFailure();
-                load();
+                if (needsRestart) {
+                    NetworkDialog.this.restartOnClose = true;
+                }
+            }, () -> {
+                if (!isDisposed()) {
+                    load();
+                }
             });
         }
 
         private void updateActions() {
-            final List<NetworkEntry> entries = selected();
-            final boolean removable = !entries.isEmpty() && entries.stream().allMatch(NetworkEntry::isRuntime);
+            final List<NetworkTableModels.EntryRow> rows = selected();
+            final boolean removable = !rows.isEmpty() && rows.stream().allMatch(NetworkTableModels.EntryRow::removable);
             this.add.setEnabled(idle() && !this.readOnly);
             this.remove.setEnabled(idle() && !this.readOnly && removable);
             this.refresh.setEnabled(idle());
-            final boolean fromSettings = entries.stream().anyMatch(entry -> !entry.isRuntime());
-            this.hint.setText(fromSettings ? NOT_REMOVABLE : " ");
+            this.hint.setText(hint(rows));
         }
     }
 
