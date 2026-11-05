@@ -1,5 +1,6 @@
 package io.github.lukashornych.hole.idea.ui.network;
 
+import io.github.lukashornych.hole.idea.hole.HoleSettingsClient;
 import io.github.lukashornych.hole.idea.model.BlockedName;
 import io.github.lukashornych.hole.idea.model.NetworkEntry;
 import org.jetbrains.annotations.NotNull;
@@ -9,10 +10,16 @@ import javax.swing.table.AbstractTableModel;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * Table models of the Network window: entries (<i>Entry</i> | <i>Source</i>) and blocked names (<i>Name</i> |
+ * Table models of the Network window: entries (<i>Entry</i> | <i>Source</i> | <i>Saved in</i>) and blocked names (<i>Name</i> |
  * <i>Count</i> | <i>Last seen</i>, local time).
  */
 final class NetworkTableModels {
@@ -31,18 +38,87 @@ final class NetworkTableModels {
     }
 
     /**
+     * One effective entry with the settings files that hold it at the top level.
+     *
+     * @param entry   as Hole lists it
+     * @param savedIn the settings files whose top-level setting contains it (canonically), in {@link HoleSettingsClient.Scope} order
+     * @param removed in force from settings, but this window removed it from the files; the gateway keeps it until a restart
+     */
+    record EntryRow(@NotNull NetworkEntry entry, @NotNull Set<HoleSettingsClient.Scope> savedIn, boolean removed) {
+
+        /** <i>Saved in</i> of an entry removed from the settings files that is in force until a restart. */
+        static final String REMOVED = "removed — restart to apply";
+
+        /**
+         * Pairs Hole's entries with the canonical entries of each settings file.
+         */
+        @NotNull
+        static List<EntryRow> of(@NotNull List<NetworkEntry> entries, @NotNull Map<HoleSettingsClient.Scope, Set<String>> saved) {
+            return of(entries, saved, Set.of());
+        }
+
+        /**
+         * Pairs Hole's entries with the canonical entries of each settings file and marks the ones removed from the
+         * files since the sandbox started.
+         *
+         * @param removed canonical entries this window removed from the settings files of the running instance
+         */
+        @NotNull
+        static List<EntryRow> of(
+            @NotNull List<NetworkEntry> entries, @NotNull Map<HoleSettingsClient.Scope, Set<String>> saved, @NotNull Set<String> removed
+        ) {
+            return entries.stream().map(entry -> {
+                final Set<HoleSettingsClient.Scope> scopes = EnumSet.noneOf(HoleSettingsClient.Scope.class);
+                saved.forEach((scope, values) -> {
+                    if (values.contains(entry.entry())) {
+                        scopes.add(scope);
+                    }
+                });
+                final boolean pending = !entry.isRuntime() && scopes.isEmpty() && removed.contains(entry.entry());
+                return new EntryRow(entry, Collections.unmodifiableSet(scopes), pending);
+            }).toList();
+        }
+
+        /**
+         * Returns {@code true} when Remove can take it away: a runtime entry, or one in a settings file.
+         */
+        boolean removable() {
+            return this.entry.isRuntime() || !this.savedIn.isEmpty();
+        }
+
+        /**
+         * Returns {@code true} when the gateway keeps the entry until a restart after it left the settings files.
+         */
+        boolean needsRestart() {
+            return !this.entry.isRuntime() && !this.savedIn.isEmpty();
+        }
+
+        /**
+         * Returns the files for the <i>Saved in</i> column, e.g. {@code global, project}.
+         */
+        @NotNull
+        String savedInText() {
+            if (this.removed) {
+                return REMOVED;
+            }
+            return Arrays.stream(HoleSettingsClient.Scope.values()).filter(this.savedIn::contains)
+                .map(HoleSettingsClient.Scope::label).collect(Collectors.joining(", "));
+        }
+    }
+
+    /**
      * Effective entries of a setting.
      */
     static final class Entries extends AbstractTableModel {
-        private List<NetworkEntry> rows = List.of();
+        private List<EntryRow> rows = List.of();
 
-        void set(@NotNull List<NetworkEntry> entries) {
+        void set(@NotNull List<EntryRow> entries) {
             this.rows = List.copyOf(entries);
             fireTableDataChanged();
         }
 
         @NotNull
-        NetworkEntry row(int index) {
+        EntryRow row(int index) {
             return this.rows.get(index);
         }
 
@@ -53,18 +129,26 @@ final class NetworkTableModels {
 
         @Override
         public int getColumnCount() {
-            return 2;
+            return 3;
         }
 
         @Override
         public String getColumnName(int column) {
-            return column == 0 ? "Entry" : "Source";
+            return switch (column) {
+                case 0 -> "Entry";
+                case 1 -> "Source";
+                default -> "Saved in";
+            };
         }
 
         @Override
         public Object getValueAt(int row, int column) {
-            final NetworkEntry entry = this.rows.get(row);
-            return column == 0 ? entry.entry() : entry.source();
+            final EntryRow entry = this.rows.get(row);
+            return switch (column) {
+                case 0 -> entry.entry().entry();
+                case 1 -> entry.entry().source();
+                default -> entry.savedInText();
+            };
         }
     }
 

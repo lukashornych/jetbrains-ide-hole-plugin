@@ -113,10 +113,10 @@ again*. See [Sandbox lifecycle](#sandbox-lifecycle) for what a restart does.
 `Network · my-project · claude (k3x9a2)`. One window per sandbox (pressing *Network…* again brings it to the front);
 it closes when the sandbox restarts, stops or its tab closes. Three tabs:
 
-1. **Allowed** (`network.allow`): table *Entry* | *Source* (`settings`, `agent:<name>`, `runtime`) with **Add…**,
-   **Remove** (only `runtime` entries; selecting another shows *From settings — edit the settings file and restart*)
-   and **Refresh**. In a sandbox started with `-u` it shows *Unrestricted network: everything is already allowed* and
-   is read-only.
+1. **Allowed** (`network.allow`): table *Entry* | *Source* (`settings`, `agent:<name>`, `runtime`) | *Saved in*
+   (`global`, `project`, `global, project` or empty) with **Add…**, **Remove** and **Refresh** (see
+   [Saved entries](#saved-entries)). In a sandbox started with `-u` it shows *Unrestricted network: everything is
+   already allowed* and is read-only.
 2. **Host gateway** (`network.hostGatewayDomains`): the same table and actions; it stays editable with `-u`, while
    the *Blocked* tab then shows nothing (nothing is blocked).
 3. **Blocked** (`network.allow list-blocked`): *Name* | *Count* | *Last seen* (local time), newest first. **Allow**
@@ -126,7 +126,54 @@ it closes when the sandbox restarts, stops or its tab closes. Three tabs:
    disappear).
 
 The Add input takes one or more entries separated by spaces, with Hole's syntax hint (`example.com`,
-`*.example.com:443,80`, `db.example.com:5432`).
+`*.example.com:443,80`, `db.example.com:5432`). **Add** (in every tab, Allowed and Host gateway included) first opens a
+popup under the button asking how long the entries stay:
+
+1. **Only Until the Sandbox Stops** — the default (Enter); runtime entries only, as before.
+2. **Also Save to Global Settings** — the runtime add, then the entries are appended to the setting's array
+   (`network.allow` / `network.hostGatewayDomains`) of the global settings file.
+3. **Also Save to Project Settings** — the same with the project settings file of the sandbox's project directory.
+   The popup notes *Project settings: the next start asks you to trust the change*: Hole gates the `network.*` keys of
+   a project file behind its trust prompt (or *Trust project settings*, `--trust-project`).
+
+Escape closes the popup and keeps the input open. The file is saved only after Hole applied the runtime add (which
+also validates the entries). Hole names the file (`hole settings get`); a missing one is created from Hole's template
+(`hole settings create`) without another question. The entries go to the top-level setting, never into `profiles`;
+entries already in the array are skipped, everything else in the file is kept (two-space indent, key order). The
+change goes through the file's IDE document, so unsaved edits of an open editor are kept and it can be undone. The input
+closes once the save is done; the list then shows the entry with source `runtime` (Hole reports it so until the
+sandbox restarts) and *Saved in* `global` / `project`. When saving fails (e.g. the file is not valid
+JSON, or `network` is not an object), the input closes and the window shows *Allowed in this sandbox, but not saved
+to the global settings: <reason>*; the runtime entries stay.
+
+#### Saved entries
+
+Hole reports only that an entry comes from `settings`, not from which file. So on every load of the Allowed / Host
+gateway list the plugin also asks Hole for both settings files (`hole settings get`, never creating one) and reads
+their top-level setting, comparing entries in Hole's canonical form (host in lower case, ports sorted, `80,443` when
+none are given: `Example.com` in a file matches the listed `example.com:80,443`). *Saved in* names the files holding
+the entry; `profiles` and agent entries are not looked at. The files are read through their IDE documents, so unsaved
+editor changes count; a file that is not valid JSON counts as empty.
+
+**Remove** is enabled when every selected entry is `runtime` or saved in a settings file:
+
+- Only runtime entries that are in no file: removed at once, no question (as before).
+- Any entry in a settings file: one confirmation lists each entry and where it goes from (*this sandbox*, *the global
+  settings file*, *the project settings file*). Then the runtime entries are removed (one `hole modify … remove`),
+  then every matching value is removed from the top-level setting of each file. A failure shows *Not removed from the
+  settings: <reason>* in the window.
+- An entry in force from `settings` stays in the gateway until a restart. The restart is not asked right away, so
+  several adds and removes can be made first: when the user closes the window (*Close*, Esc, the title bar) after at
+  least one such removal, the usual **Restart Sandbox** confirmation appears once (the standard one, with no extra
+  reason; the Remove confirmation already said that closing offers it). The window closed by the sandbox tab (stop,
+  restart, exit) asks nothing. *Cancel* keeps the sandbox running: the entry stays listed until the restart with
+  *Saved in* *removed — restart to apply* and, when selected, *Removed from the settings files — in force until the
+  sandbox restarts* (the sandbox tab remembers these removals per instance, so a reopened window still marks them; a
+  restart clears them). Selecting an entry in force from a file shows *From settings — Remove edits the settings
+  file; closing this window offers a restart to apply it*.
+- Entries in no file and not `runtime` cannot be removed: an agent's shows *From an agent — cannot be removed*; one
+  from settings that is in neither file (a profile's, or one removed by hand while the sandbox runs) shows *From
+  settings, but not in the top level of either file (a profile?) — edit the file*.
 
 Unlike the TUI, **every confirmed add or remove is applied at once** (one `hole modify … add|remove v1 v2…` call, one
 gateway apply); Hole cannot apply additions and removals together, so staging would not be atomic. The entry lists

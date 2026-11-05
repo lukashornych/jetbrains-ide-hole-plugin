@@ -59,7 +59,9 @@ analyses or other working notes that are not committed. Extended documentation b
 - **Stop sandboxes through the process group** of `hole start` (SIGINT, SIGKILL for Force Stop) — never the process
   tree, never `0x03` written to the pty. See [architecture](architecture.md#stopping-signals-to-the-process-group).
 - **No GUI for Hole's settings content.** Hole's settings keys change often; the plugin links to the files and lets
-  Hole create them, nothing more.
+  Hole create them. The single exception: the Network window reads, appends and removes entries of the top-level
+  `network.allow` / `network.hostGatewayDomains` (`hole.SettingsEntries`), because Hole has no CLI for it; do not
+  grow it into a settings editor.
 - **Behaviour changes update the [specification](specification.md)** in the same change.
 
 ## Testing
