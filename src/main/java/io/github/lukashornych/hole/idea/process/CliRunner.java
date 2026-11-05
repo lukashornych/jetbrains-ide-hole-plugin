@@ -1,6 +1,5 @@
 package io.github.lukashornych.hole.idea.process;
 
-import com.intellij.util.EnvironmentUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -25,15 +24,15 @@ import java.util.function.Supplier;
  * captures their output. Blocks the calling thread, so it must not be called on the EDT.
  *
  * <p>Every process gets exactly the environment from the injected supplier, by default the user's shell environment
- * from {@link EnvironmentUtil#getEnvironmentMap()}, and not the IDE's own environment. The executable (first element
+ * from {@link ShellEnvironment#latest()}, and not the IDE's own environment. The executable (first element
  * of the command) is resolved on the `PATH` of that environment. The environment is never logged.</p>
  *
  * <p>Not for `hole start`, which needs a real TTY and runs through pty4j.</p>
  */
 public final class CliRunner {
 
-    /** The user's shell environment as loaded by the IDE. */
-    public static final Supplier<Map<String, String>> SHELL_ENVIRONMENT = EnvironmentUtil::getEnvironmentMap;
+    /** The user's shell environment as most recently read (blocks until the first read ended). */
+    public static final Supplier<Map<String, String>> SHELL_ENVIRONMENT = () -> ShellEnvironment.getInstance().latest();
 
     private static final Duration TERMINATE_GRACE = Duration.ofSeconds(2);
 

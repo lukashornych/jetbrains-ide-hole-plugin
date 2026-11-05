@@ -79,6 +79,16 @@ class FakeHoleScriptTest {
     }
 
     @Test
+    void startPrintsTheRequestedVariableOfItsEnvironment() throws Exception {
+        this.hole.environment().put("FAKE_HOLE_PRINT_ENV", "PROJECT_PATH");
+        this.hole.environment().put("PROJECT_PATH", "/home/user/project");
+        this.hole.environment().put("FAKE_HOLE_EXIT_AFTER", "0.3");
+        final Process process = start("abc123");
+        assertTrue(process.waitFor(10, TimeUnit.SECONDS));
+        assertTrue(output(process).contains("Instance ID: abc123\nPROJECT_PATH=/home/user/project\n"), output(process));
+    }
+
+    @Test
     void startFailureExitsWithConfiguredCode() throws Exception {
         this.hole.environment().put("FAKE_HOLE_START_EXIT", "1");
         final Process process = start("abc123");

@@ -4,14 +4,17 @@ import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationAction;
 import com.intellij.notification.NotificationGroupManager;
 import com.intellij.notification.NotificationType;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.MessageDialogBuilder;
 import io.github.lukashornych.hole.idea.hole.HoleCapability;
 import io.github.lukashornych.hole.idea.session.StartFailureNotifier;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Balloon notifications of the plugin (group {@value #GROUP_ID}, registered in `plugin.xml`).
+ * Balloon notifications of the plugin (group {@value #GROUP_ID}, registered in `plugin.xml`), and the dialog for an
+ * unreadable shell environment.
  */
 public final class HoleNotifications implements StartFailureNotifier {
 
@@ -35,6 +38,28 @@ public final class HoleNotifications implements StartFailureNotifier {
             default -> "Hole sandbox not started";
         };
         notify(title, capability.message(), NotificationType.WARNING);
+    }
+
+    /**
+     * Asks on the EDT whether to retry; a dialog rather than a balloon, because the user is waiting for the start.
+     * Non-modal context is enough: every start runs after the New Sandbox dialog has closed.
+     */
+    @Override
+    public void environmentUnavailable(@NotNull String shell, @NotNull String reason, @NotNull Runnable retry) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            final boolean again = MessageDialogBuilder.yesNo(
+                    "Hole sandbox not started",
+                    "Could not read the environment of your shell (" + shell + ": " + reason + "). "
+                        + "Variables from your shell profile would be missing in the sandbox."
+                )
+                .yesText("Retry")
+                .noText("Cancel")
+                .asWarning()
+                .ask(this.project);
+            if (again) {
+                retry.run();
+            }
+        }, this.project.getDisposed());
     }
 
     @Override

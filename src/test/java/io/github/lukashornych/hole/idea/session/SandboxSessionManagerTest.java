@@ -6,7 +6,9 @@ import io.github.lukashornych.hole.idea.hole.HoleListClient;
 import io.github.lukashornych.hole.idea.hole.MetadataPoller;
 import io.github.lukashornych.hole.idea.model.SandboxConfig;
 import io.github.lukashornych.hole.idea.process.CliRunner;
+import io.github.lukashornych.hole.idea.process.ShellEnvironment;
 import io.github.lukashornych.hole.idea.testutil.FakeHole;
+import io.github.lukashornych.hole.idea.testutil.FakeShell;
 import io.github.lukashornych.hole.idea.testutil.TerminalDrain;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.AfterEach;
@@ -19,8 +21,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -37,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Manager logic (tabs, close veto, history, shutdown) with a recording view and the fake `hole` script in real ptys.
+ * Every start reads its environment through the fake login shell, launched like from a terminal (`SHLVL=2`).
  */
 class SandboxSessionManagerTest {
 
@@ -44,6 +48,8 @@ class SandboxSessionManagerTest {
     Path temp;
 
     private FakeHole hole;
+    private FakeShell shell;
+    private ShellEnvironment shellEnvironment;
     private Path project;
     private MetadataPoller poller;
     private ExecutorService background;
@@ -58,6 +64,8 @@ class SandboxSessionManagerTest {
     void setUp() throws Exception {
         this.hole = FakeHole.install(this.temp.resolve("fake"));
         this.hole.environment().put("FAKE_HOLE_RUNNING_AFTER", "0.3");
+        this.shell = FakeShell.install(this.temp.resolve("shell"));
+        this.shellEnvironment = new ShellEnvironment(this::baseEnvironment, Map::of, Duration.ofSeconds(10), true);
         this.project = Files.createDirectories(this.temp.resolve("demo"));
         final HoleListClient client = new HoleListClient(this.hole.executable().toString(), new CliRunner(this.hole::environment));
         this.poller = new MetadataPoller(client::listAll, Executors.newSingleThreadScheduledExecutor(), true,
@@ -72,7 +80,7 @@ class SandboxSessionManagerTest {
             new io.github.lukashornych.hole.idea.hole.InstanceIdGenerator()::generate, Clock.systemUTC(), this.background, PasteDirectory.disabled()
         );
         this.manager = new SandboxSessionManager(
-            this.project, () -> this.capability.get(), this.hole::environment, services, this.ui, this.notifier
+            this.project, () -> this.capability.get(), this.shellEnvironment::read, services, this.ui, this.notifier
         );
         this.view = new RecordingView(this.manager);
         onUi(() -> {
@@ -385,6 +393,107 @@ class SandboxSessionManagerTest {
         assertFalse(this.view.removed.contains(session), "the tab stays with the old output");
     }
 
+    @Test
+    void sandboxGetsVariablesFromTheShellProfileWhenTheIdeWasLaunchedFromATerminal() throws Exception {
+        // regression: the platform's snapshot skips the shell with SHLVL > 0, so Hole saw `$PROJECT_PATH` unexpanded
+        this.shell.export("PROJECT_PATH", "/home/user/project");
+        this.hole.environment().put("FAKE_HOLE_PRINT_ENV", "PROJECT_PATH");
+        assertFalse(this.baseEnvironment().containsKey("PROJECT_PATH"));
+
+        startAndWait(SandboxConfig.defaults(), "aaaaaa");
+
+        waitUntil(() -> this.view.terminals.get(0).output().contains("PROJECT_PATH=/home/user/project"),
+            () -> this.view.terminals.get(0).output());
+    }
+
+    @Test
+    void everyStartReadsTheShellEnvironmentAgain() throws Exception {
+        this.shell.export("PROJECT_PATH", "/home/user/first");
+        this.hole.environment().put("FAKE_HOLE_PRINT_ENV", "PROJECT_PATH");
+        startAndWait(SandboxConfig.defaults(), "aaaaaa");
+        this.shell.export("PROJECT_PATH", "/home/user/second");
+        startAndWait(SandboxConfig.defaults(), "bbbbbb");
+
+        waitUntil(() -> this.view.terminals.get(1).output().contains("PROJECT_PATH=/home/user/second"),
+            () -> this.view.terminals.get(1).output());
+        assertTrue(this.view.terminals.get(0).output().contains("PROJECT_PATH=/home/user/first"));
+        assertEquals(2, this.shell.calls().size(), this.shell.calls().toString());
+    }
+
+    @Test
+    void unreadableShellEnvironmentStartsNothingAndRetryStarts() throws Exception {
+        this.shell.environment().put("FAKE_SHELL_EXIT", "1");
+        assertNull(this.manager.start(SandboxConfig.defaults(), false, "aaaaaa").get(20, TimeUnit.SECONDS));
+        assertEquals(List.of("environmentUnavailable " + this.shell.executable() + ": exited with code 1"), this.notifier.events);
+        assertTrue(this.hole.calls().stream().noneMatch(call -> call.startsWith("start") || call.startsWith("version")),
+            "neither probed nor started: " + this.hole.calls());
+        assertTrue(this.view.ops.isEmpty());
+
+        // the user fixed the shell profile and clicks Retry
+        this.shell.environment().remove("FAKE_SHELL_EXIT");
+        this.notifier.retries.get(0).run();
+        waitUntil(() -> this.view.added.size() == 1, () -> "started on retry: " + this.notifier.events);
+        assertEquals("aaaaaa", this.view.added.get(0).snapshot().instanceId());
+        assertEquals(1, this.notifier.events.size());
+    }
+
+    @Test
+    void cancelledShellEnvironmentReadStartsNothingWithoutADialog() throws Exception {
+        final SandboxSessionManager cancelling = new SandboxSessionManager(
+            this.project, () -> this.capability.get(), () -> {
+                throw io.github.lukashornych.hole.idea.process.ShellEnvironmentException.cancelled("/bin/zsh");
+            },
+            new SessionServices(new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
+                () -> "aaaaaa", Clock.systemUTC(), this.background, PasteDirectory.disabled()),
+            this.ui, this.notifier
+        );
+        assertNull(cancelling.start(SandboxConfig.defaults(), false, "aaaaaa").get(20, TimeUnit.SECONDS));
+        assertTrue(this.notifier.events.isEmpty(), this.notifier.events.toString());
+        assertTrue(this.hole.calls().isEmpty(), this.hole.calls().toString());
+    }
+
+    @Test
+    void restartWhoseShellEnvironmentCannotBeReadLeavesTheSandboxRunning() throws Exception {
+        final SandboxSession session = startAndWait(SandboxConfig.defaults(), "aaaaaa");
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+        this.shell.environment().put("FAKE_SHELL_EXIT", "1");
+
+        assertFalse(this.manager.restart(session, null).get(20, TimeUnit.SECONDS));
+        assertEquals(1, this.notifier.events.size(), this.notifier.events.toString());
+        assertTrue(this.notifier.events.get(0).startsWith("environmentUnavailable"), this.notifier.events.toString());
+        assertEquals(SessionState.RUNNING, session.snapshot().state());
+        assertTrue(session.process().isAlive(), "no SIGINT");
+        assertEquals(1, this.hole.calls().stream().filter(call -> call.startsWith("start ")).count());
+    }
+
+    @Test
+    void holeIsLocatedOnThePathTheStartHasJustRead() throws Exception {
+        // `hole` is only on the PATH an rc file sets (like Homebrew's in ~/.zprofile); the probe reads latest()
+        final HoleExecutable detecting = new HoleExecutable(() -> "", new CliRunner(this.shellEnvironment::latest));
+        this.capability = detecting::probe;
+        final String systemPath = this.baseEnvironment().get("PATH");
+        assertFalse(systemPath.contains(this.hole.binDirectory().toString()));
+        this.shellEnvironment.read();
+        assertTrue(detecting.locate().isEmpty(), "not found with the environment read so far");
+
+        this.shell.export("PATH", this.hole.binDirectory() + ":" + systemPath);
+        final SandboxSession session = startAndWait(SandboxConfig.defaults(), "aaaaaa");
+
+        assertEquals(this.hole.executable().toAbsolutePath(), session.launch().executable());
+    }
+
+    /**
+     * Environment of the IDE process: launched from a terminal, nothing from the shell profile.
+     */
+    @NotNull
+    private Map<String, String> baseEnvironment() {
+        final Map<String, String> base = new HashMap<>(this.hole.environment());
+        base.put("SHELL", this.shell.executable().toString());
+        base.put("SHLVL", "2");
+        base.putAll(this.shell.environment());
+        return base;
+    }
+
     @NotNull
     private SandboxSession startAndWait(@NotNull SandboxConfig config, @NotNull String id) throws Exception {
         final SandboxSession session = this.manager.start(config, false, id).get(20, TimeUnit.SECONDS);
@@ -413,7 +522,7 @@ class SandboxSessionManagerTest {
         final List<SandboxSession> added = new CopyOnWriteArrayList<>();
         final List<SandboxSession> updated = new CopyOnWriteArrayList<>();
         final List<SandboxSession> removed = new CopyOnWriteArrayList<>();
-        final List<TerminalDrain> terminals = new ArrayList<>();
+        final List<TerminalDrain> terminals = new CopyOnWriteArrayList<>();
 
         RecordingView(@NotNull SandboxSessionManager manager) {
             this.manager = manager;
@@ -474,6 +583,13 @@ class SandboxSessionManagerTest {
 
     private static final class RecordingNotifier implements StartFailureNotifier {
         final List<String> events = new CopyOnWriteArrayList<>();
+        final List<Runnable> retries = new CopyOnWriteArrayList<>();
+
+        @Override
+        public void environmentUnavailable(@NotNull String shell, @NotNull String reason, @NotNull Runnable retry) {
+            this.events.add("environmentUnavailable " + shell + ": " + reason);
+            this.retries.add(retry);
+        }
 
         @Override
         public void cannotStart(@NotNull HoleCapability capability) {

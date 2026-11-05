@@ -1,0 +1,46 @@
+#!/bin/sh
+# Fake login shell for the plugin tests (`process.ShellEnvironment`). Called like a real shell:
+# `shell [-l] [-i] -c <command>`. It ignores `-l`/`-i`, sources an rc file, then evaluates the command, so whatever
+# the rc file exports reaches `env -0` in the command.
+#
+# Switches (environment):
+#   FAKE_SHELL_LOG=FILE    appends one line per invocation: `<pid> reader=<INTELLIJ_ENVIRONMENT_READER> <arguments>`
+#   FAKE_SHELL_RC=FILE     sourced before the command, like ~/.zshrc (tests write `export NAME='value'` lines into it)
+#   FAKE_SHELL_NOISE=1     prints junk to stdout and stderr, like a motd or `nvm use`
+#   FAKE_SHELL_DELAY=S     sleeps S seconds before the command (concurrency tests)
+#   FAKE_SHELL_HANG=1      never runs the command: replaces itself with a long `sleep`, so a SIGTERM ends it
+#   FAKE_SHELL_EXIT=N      exits with N after running the command
+#   FAKE_SHELL_NOCLOBBER=1 `set -C` before the command, like `setopt noclobber` in ~/.zshrc
+
+set -u
+if [ -n "${FAKE_SHELL_LOG:-}" ]; then
+    echo "$$ reader=${INTELLIJ_ENVIRONMENT_READER:-} $*" >> "$FAKE_SHELL_LOG"
+fi
+command=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -l|-i) ;;
+        -c) shift; command="${1:-}" ;;
+        *) echo "fake shell: unexpected argument '$1'" >&2; exit 2 ;;
+    esac
+    shift
+done
+if [ -n "${FAKE_SHELL_RC:-}" ] && [ -f "$FAKE_SHELL_RC" ]; then
+    . "$FAKE_SHELL_RC"
+fi
+if [ "${FAKE_SHELL_NOISE:-}" = "1" ]; then
+    echo "Welcome! FOO=bar"
+    printf 'junk\0NOT=PARSED\0'
+    echo "rc warning" >&2
+fi
+if [ -n "${FAKE_SHELL_DELAY:-}" ]; then
+    sleep "$FAKE_SHELL_DELAY"
+fi
+if [ "${FAKE_SHELL_HANG:-}" = "1" ]; then
+    exec sleep 60
+fi
+if [ "${FAKE_SHELL_NOCLOBBER:-}" = "1" ]; then
+    set -C
+fi
+eval "$command"
+exit "${FAKE_SHELL_EXIT:-$?}"
