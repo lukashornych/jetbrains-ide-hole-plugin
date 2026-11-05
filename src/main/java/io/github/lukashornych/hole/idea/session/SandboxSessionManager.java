@@ -13,6 +13,8 @@ import io.github.lukashornych.hole.idea.hole.HoleListClient;
 import io.github.lukashornych.hole.idea.hole.HoleSettingsLocator;
 import io.github.lukashornych.hole.idea.hole.InstanceIdGenerator;
 import io.github.lukashornych.hole.idea.model.SandboxConfig;
+import io.github.lukashornych.hole.idea.process.ShellEnvironment;
+import io.github.lukashornych.hole.idea.process.ShellEnvironmentException;
 import io.github.lukashornych.hole.idea.ui.HoleNotifications;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -36,8 +38,11 @@ import java.util.function.Supplier;
  * SIGINT and the manager removes the tab itself when the process has exited. Before it removes a selected tab it
  * selects the previously selected one.</p>
  *
- * <p>Threading: {@link #start} and {@link #restart} probe and spawn on a background thread; all view calls and the
- * session list are confined to the UI executor (the EDT in the IDE).</p>
+ * <p>Every start and restart reads the environment of the user's shell first, then probes Hole and spawns `hole start`
+ * with that environment. A failed read starts nothing and lets the user retry.</p>
+ *
+ * <p>Threading: {@link #start} and {@link #restart} read, probe and spawn on a background thread; all view calls and
+ * the session list are confined to the UI executor (the EDT in the IDE).</p>
  */
 @Service(Service.Level.PROJECT)
 public final class SandboxSessionManager implements Disposable {
@@ -46,7 +51,7 @@ public final class SandboxSessionManager implements Disposable {
 
     private final Path projectRoot;
     private final Supplier<HoleCapability> capability;
-    private final Supplier<Map<String, String>> environment;
+    private final EnvironmentSource environment;
     private final SessionServices services;
     private final Executor ui;
     private final StartFailureNotifier notifier;
@@ -70,7 +75,7 @@ public final class SandboxSessionManager implements Disposable {
         this(
             projectRoot(project),
             () -> HoleExecutable.getInstance().probe(),
-            () -> HoleExecutable.getInstance().runner().environment(),
+            () -> ShellEnvironment.getInstance().readShowingProgress(project),
             SessionServices.platform(),
             // no expiry condition: the runnables check `disposing` themselves, so a session spawned while the
             // project closes still gets its SIGINT
@@ -83,7 +88,7 @@ public final class SandboxSessionManager implements Disposable {
     /**
      * @param projectRoot  IDE project root: working directory of `hole start`
      * @param capability   locates and probes Hole (blocking)
-     * @param environment  the user's shell environment
+     * @param environment  reads the user's shell environment (blocking)
      * @param services     what sessions need
      * @param ui           runs view updates (the EDT in the IDE)
      * @param notifier     reports starts that produce no tab
@@ -92,7 +97,7 @@ public final class SandboxSessionManager implements Disposable {
     public SandboxSessionManager(
         @NotNull Path projectRoot,
         @NotNull Supplier<HoleCapability> capability,
-        @NotNull Supplier<Map<String, String>> environment,
+        @NotNull EnvironmentSource environment,
         @NotNull SessionServices services,
         @NotNull Executor ui,
         @NotNull StartFailureNotifier notifier
@@ -135,8 +140,9 @@ public final class SandboxSessionManager implements Disposable {
     }
 
     /**
-     * Starts a sandbox in a new tab. Hole is probed first; when it is missing or too old, or the process cannot be
-     * spawned, the user gets a notification and no tab is created. Errors Hole itself prints (Docker not running,
+     * Starts a sandbox in a new tab. The shell environment is read and Hole is probed first; when the environment
+     * cannot be read, Hole is missing or too old, or the process cannot be spawned, the user is told and no tab is
+     * created. Errors Hole itself prints (Docker not running,
      * unknown profile) stay readable in the tab, which then shows "Exited with code N".
      *
      * @param config     sandbox configuration
@@ -172,9 +178,9 @@ public final class SandboxSessionManager implements Disposable {
 
     /**
      * Restarts a RUNNING sandbox in its tab (see {@link SandboxSession#restart(SandboxSession.Launch)}), e.g. to apply
-     * changed settings files or another config. Hole is probed again first, so the restart uses the current
-     * executable and environment; when Hole is missing or too old now, the user is notified and the running sandbox is
-     * left alone. Does nothing unless the session is RUNNING.
+     * changed settings files or another config. The shell environment is read and Hole is probed again first, so the
+     * restart uses the current executable and environment; when either fails now, the user is told and the running
+     * sandbox is left alone. Does nothing unless the session is RUNNING.
      *
      * @param session   the session to restart
      * @param newConfig the config of the new sandbox, or {@code null} to keep the current one
@@ -282,6 +288,11 @@ public final class SandboxSessionManager implements Disposable {
 
     @Nullable
     private SandboxSession startInBackground(@NotNull SandboxConfig config, boolean debug, @Nullable String preferredId) {
+        // before the probe: it locates `hole` on the PATH the read has just refreshed
+        final Map<String, String> env = readEnvironment(() -> start(config, debug, preferredId));
+        if (env == null) {
+            return null;
+        }
         final HoleCapability hole = this.capability.get();
         if (!hole.canStart() || hole.executable() == null) {
             this.notifier.cannotStart(hole);
@@ -292,7 +303,7 @@ public final class SandboxSessionManager implements Disposable {
             LOG.info("Starting a sandbox although the Hole probe failed: " + hole.message());
         }
         final String instanceId = InstanceIdGenerator.isValid(preferredId) ? preferredId : this.services.instanceIds().get();
-        final SandboxSession.Launch launch = launch(config, debug, hole.executable());
+        final SandboxSession.Launch launch = launch(config, debug, hole.executable(), env);
         final SandboxSession session = new SandboxSession(launch, instanceId, this.services, this.sessionListener);
         try {
             session.start();
@@ -315,6 +326,10 @@ public final class SandboxSessionManager implements Disposable {
         if (this.disposing || session.snapshot().state() != SessionState.RUNNING) {
             return false;
         }
+        final Map<String, String> env = readEnvironment(() -> restart(session, newConfig));
+        if (env == null) {
+            return false;
+        }
         final HoleCapability hole = this.capability.get();
         if (!hole.canStart() || hole.executable() == null) {
             this.notifier.cannotStart(hole);
@@ -322,15 +337,39 @@ public final class SandboxSessionManager implements Disposable {
         }
         final SandboxSession.Launch current = session.launch();
         final SandboxConfig config = newConfig != null ? newConfig : current.config();
-        return session.restart(launch(config, current.debug(), hole.executable()));
+        return session.restart(launch(config, current.debug(), hole.executable(), env));
     }
 
     /**
-     * Builds what a session starts, with the current environment of the user's shell.
+     * Reads the user's shell environment for a start; on failure tells the user, who may {@code retry}.
+     *
+     * @return the environment, or {@code null} when nothing may be started
+     */
+    @Nullable
+    private Map<String, String> readEnvironment(@NotNull Runnable retry) {
+        try {
+            return this.environment.read();
+        } catch (ShellEnvironmentException e) {
+            if (!e.isCancelled() && !this.disposing) {
+                LOG.info("Sandbox not started: the shell environment could not be read (" + e.getMessage() + ")");
+                this.notifier.environmentUnavailable(e.getShell(), e.getReason(), retry);
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Builds what a session starts.
+     *
+     * @param env the environment just read from the user's shell
      */
     @NotNull
-    private SandboxSession.Launch launch(@NotNull SandboxConfig config, boolean debug, @NotNull Path executable) {
-        final Map<String, String> env = this.environment.get();
+    private SandboxSession.Launch launch(
+        @NotNull SandboxConfig config,
+        boolean debug,
+        @NotNull Path executable,
+        @NotNull Map<String, String> env
+    ) {
         final Path projectDirectory = new HoleSettingsLocator(() -> env)
             .resolveProjectDirectory(this.projectRoot, config.projectPath())
             .orElse(this.projectRoot);
@@ -402,6 +441,21 @@ public final class SandboxSessionManager implements Disposable {
     private static Path projectRoot(@NotNull Project project) {
         final String basePath = project.getBasePath();
         return Path.of(basePath != null ? basePath : System.getProperty("user.home"));
+    }
+
+    /**
+     * Reads the environment of the user's shell for a start or restart.
+     */
+    @FunctionalInterface
+    public interface EnvironmentSource {
+
+        /**
+         * Reads the environment. Blocking.
+         *
+         * @throws ShellEnvironmentException when it cannot be read or the user cancelled waiting for it
+         */
+        @NotNull
+        Map<String, String> read() throws ShellEnvironmentException;
     }
 
     private final class SessionListener implements SandboxSession.Listener {

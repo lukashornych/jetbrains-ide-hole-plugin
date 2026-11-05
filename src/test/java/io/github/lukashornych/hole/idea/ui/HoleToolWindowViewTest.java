@@ -85,6 +85,11 @@ public class HoleToolWindowViewTest extends BasePlatformTestCase {
                 }
 
                 @Override
+                public void environmentUnavailable(@NotNull String shell, @NotNull String reason, @NotNull Runnable retry) {
+                    fail("environment unavailable: " + reason);
+                }
+
+                @Override
                 public void spawnFailed(@NotNull String reason) {
                     fail("spawn failed: " + reason);
                 }

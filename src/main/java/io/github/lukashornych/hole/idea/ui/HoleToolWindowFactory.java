@@ -10,6 +10,7 @@ import com.intellij.openapi.wm.ex.ToolWindowEx;
 import com.intellij.util.ui.StatusText;
 import io.github.lukashornych.hole.idea.hole.HoleCapability;
 import io.github.lukashornych.hole.idea.hole.HoleExecutable;
+import io.github.lukashornych.hole.idea.process.ShellEnvironment;
 import io.github.lukashornych.hole.idea.session.SandboxSessionManager;
 import org.jetbrains.annotations.NotNull;
 
@@ -44,6 +45,8 @@ public final class HoleToolWindowFactory implements ToolWindowFactory, DumbAware
         }
         // tell the user early when Hole is missing or too old; starts are gated again by every start
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
+            // read the shell environment first, so the probe and the first CLI calls look up `hole` on its PATH
+            ShellEnvironment.getInstance().latest();
             final HoleCapability capability = HoleExecutable.getInstance().probe();
             if (capability.status() == HoleCapability.Status.UNSUPPORTED && !project.isDisposed()) {
                 new HoleNotifications(project).cannotStart(capability);

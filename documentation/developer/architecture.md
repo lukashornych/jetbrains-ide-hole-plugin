@@ -15,10 +15,26 @@ All packages below are under `io.github.lukashornych.hole.idea`.
   **Hole 2.6.0**, the minimum supported version.
 - **No intermediate shell.** Every process — `hole start` included — is started from an argument list, never from a
   shell string. `hole start` runs directly as the process of the tab's pty, so its exit is the signal that the
-  sandbox is gone.
-- **The user's environment, not the IDE's.** Processes get the user's shell environment
-  (`EnvironmentUtil.getEnvironmentMap()`), and executables are resolved on its `PATH` by `process.ExecutableLocator`,
-  because an IDE started from the macOS Dock has a different `PATH` than the user's shell.
+  sandbox is gone. The only shell the plugin starts is the environment reader below, and its output never reaches a
+  parser or a tab.
+- **The user's environment, not the IDE's.** Processes get the environment of the user's login-interactive shell,
+  read by `process.ShellEnvironment` (`$SHELL -l -i -c '/usr/bin/env -0 > <temp dir>/env'`), and executables are
+  resolved on its `PATH` by `process.ExecutableLocator`, because an IDE started from the macOS Dock has a different
+  `PATH` than the user's shell, and Hole expands `$VAR` in settings from its own environment. Every start and restart
+  reads it again (like a new terminal tab re-sources the rc files); a failed read starts nothing and asks *Retry /
+  Cancel* instead of falling back. The short-lived CLI calls use the most recent successful read
+  (`ShellEnvironment.latest()`), or the platform's snapshot when none has succeeded yet.
+  - Not `EnvironmentUtil.getEnvironmentMap()`: the platform skips loading it when the IDE looks launched from a
+    terminal (`SHLVL > 0`), falls back to the IDE's environment silently on a timeout or failing shell, and never
+    refreshes it after IDE start.
+  - Not running every command through the shell: rc-file output on stdout would corrupt the parsed CLI output, the
+    poller would spawn a login shell every second, and for `hole start` the interactive shell would run in the tab's
+    pty (tmux auto-attach, prompts) where a hanging rc file is indistinguishable from a hanging Hole.
+  - The environment goes to a file the shell creates in an owner-only temporary directory (a pre-created file would
+    fail under `noclobber`), so rc files may print anything; the shell gets
+    `INTELLIJ_ENVIRONMENT_READER=true`, the platform's marker that rc files test to skip interactive things.
+    `_`, `PWD`, `OLDPWD`, `SHLVL` and the marker are dropped. `csh`/`tcsh` get no `-l` (they reject it with `-c`).
+    Not read on Windows (no tool window there).
 - **Logic free of Swing.** State machines, models and texts are plain Java, so they are tested without a UI (see
   [testability](#testability)).
 
@@ -26,7 +42,7 @@ All packages below are under `io.github.lukashornych.hole.idea`.
 
 | Package | Responsibility |
 |---------|----------------|
-| `process` | `CliRunner` runs short-lived, non-interactive commands with captured output and a timeout; `ExecutableLocator` resolves executables on the user's `PATH`. Not used for `hole start`. |
+| `process` | `CliRunner` runs short-lived, non-interactive commands with captured output and a timeout; `ExecutableLocator` resolves executables on the user's `PATH`; `ShellEnvironment` reads the user's shell environment. `CliRunner` is not used for `hole start`. |
 | `hole` | One client per Hole command (`HoleListClient`, `HoleSettingsClient`, `HoleModifyClient`) with its parser; `HoleExecutable` locates and probes `hole`; `HoleCommandBuilder` builds every argument list; `InstanceIdGenerator`; `MetadataPoller`. |
 | `session` | The lifecycle of one sandbox (`SandboxSession`) and of all sandboxes of a project (`SandboxSessionManager`); the pty (`HoleTerminalRunner`, `HoleTtyConnector`); process-group signals (`ProcessSignaller`); image paste folders (`PasteDirectory`, `PasteStore`). |
 | `storage` | `PersistentStateComponent` services: plugin settings and favourites of both scopes. Null handling of persisted state lives here. |
@@ -40,7 +56,7 @@ nothing. `session` holds no Swing code — it talks to the tool window through t
 `ui`).
 
 Services are light services (`@Service`), obtained through their static `getInstance()` methods:
-`HoleExecutable`, `MetadataPoller`, `HolePluginSettings` and `GlobalFavouritesService` at application level,
+`HoleExecutable`, `ShellEnvironment`, `MetadataPoller`, `HolePluginSettings` and `GlobalFavouritesService` at application level,
 `SandboxSessionManager` and `ProjectFavouritesService` at project level. `plugin.xml` registers only the tool
 window, the notification group and the settings page.
 
@@ -146,6 +162,9 @@ the empty state of every open project.
   pooled-thread `Alarm` for debounced form checks (`SandboxForm`). Results are applied on the EDT with
   `invokeLater` (with `ModalityState.any()` where a modal dialog is open).
 - The CLI clients are blocking by design and say so in their Javadoc ("call off the EDT").
+- `ShellEnvironment.read()` blocks for the shell (at most 10 s; concurrent callers share one run), and `latest()`
+  blocks until the first read ended, so `CliRunner.SHELL_ENVIRONMENT` must not be read on the EDT either. A start's
+  read slower than 1 s shows a cancellable background progress (`readShowingProgress`).
 - View calls of `SandboxSessionManager` and its session list are confined to its UI executor (the EDT in the IDE).
 
 ## Testability

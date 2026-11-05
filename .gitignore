@@ -5,3 +5,10 @@
 build/
 out/
 .kotlin/
+
+# Eclipse JDT / Buildship metadata (e.g. from a Java language server)
+bin/
+.classpath
+.project
+.factorypath
+.settings/
