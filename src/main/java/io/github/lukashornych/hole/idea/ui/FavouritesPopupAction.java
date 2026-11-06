@@ -21,8 +21,8 @@ import java.awt.event.KeyEvent;
 import java.util.function.Consumer;
 
 /**
- * The arrow next to {@code +}: favourites of this project and of all projects (click starts, Shift+click or
- * Shift+Enter starts in Debug Shell), then <i>New Sandbox…</i> and <i>Edit Favourites…</i>.
+ * The {@code +} tab action: a popup with <i>New Sandbox…</i>, the favourites of this project and of all projects
+ * (click starts, Shift+click or Shift+Enter starts in Debug Shell) and <i>Edit Favourites…</i>.
  */
 final class FavouritesPopupAction extends DumbAwareAction {
 
@@ -30,7 +30,7 @@ final class FavouritesPopupAction extends DumbAwareAction {
     static final String DEBUG_HINT = "Shift+click or Shift+Enter starts in Debug Shell";
 
     FavouritesPopupAction() {
-        super("Favourites", "Start a favourite sandbox", AllIcons.General.ChevronDown);
+        super("New Sandbox or Favourite", "Start a new sandbox or a favourite", AllIcons.General.Add);
     }
 
     @Override
@@ -51,7 +51,7 @@ final class FavouritesPopupAction extends DumbAwareAction {
     }
 
     /**
-     * Shows the favourites dropdown (also from <i>More…</i> on the empty start page).
+     * Shows the favourites popup (also from <i>More…</i> on the empty start page).
      *
      * @param project   the IDE project
      * @param placement shows the popup, e.g. underneath the clicked component

@@ -16,9 +16,9 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * Creates the bottom <b>Hole</b> tool window, in which each tab is one running sandbox. The tab strip ends with
- * {@code +} (New Sandbox) and the favourites dropdown; without tabs the window shows an empty state with a
- * <i>New Sandbox…</i> link and the favourites ({@link HoleEmptyState}). On Windows it only shows that Hole is not
- * supported.
+ * {@code +}, which opens the popup with <i>New Sandbox…</i> and the favourites; without tabs the window shows an
+ * empty state with a <i>New Sandbox…</i> link and the favourites ({@link HoleEmptyState}). On Windows it only shows
+ * that Hole is not supported.
  */
 public final class HoleToolWindowFactory implements ToolWindowFactory, DumbAware {
 
@@ -37,7 +37,7 @@ public final class HoleToolWindowFactory implements ToolWindowFactory, DumbAware
         final SandboxSessionManager manager = SandboxSessionManager.getInstance(project);
         manager.attachView(new HoleToolWindowView(project, toolWindow, manager));
         if (toolWindow instanceof ToolWindowEx toolWindowEx) {
-            toolWindowEx.setTabActions(new NewSandboxAction(), new FavouritesPopupAction());
+            toolWindowEx.setTabActions(new FavouritesPopupAction());
         }
         final HoleEmptyState emptyState = emptyText == null ? null : new HoleEmptyState(project, toolWindow, emptyText);
         if (emptyState != null) {

@@ -27,7 +27,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * Starts a favourite (favourites dropdown, empty start page) in the project root, or in a git worktree of it: when the
+ * Starts a favourite (favourites popup, empty start page) in the project root, or in a git worktree of it: when the
  * project has linked worktrees, a popup lets the user choose, with <i>Project root</i> first and selected. The
  * worktrees are listed anew for every start, as they come and go.
  */

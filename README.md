@@ -61,15 +61,15 @@ The plugin finds `hole` on the `PATH` of your shell or in `~/.local/bin`. If it 
 
 ## Usage
 
-Open the **Hole** tool window at the bottom of the IDE and click *New Sandbox…* (or `+` in the tab strip). Pick the
-agent, an optional profile and the project path — `.` is the IDE project, and git worktrees of the project are
-offered in the dropdown — tick the sandbox options you need and press *Start*. *Start in Debug Shell* opens a shell
-in the sandbox instead of the agent.
+Open the **Hole** tool window at the bottom of the IDE and click *New Sandbox…* (or `+` in the tab strip, then
+*New Sandbox…*). Pick the agent, an optional profile and the project path — `.` is the IDE project, and git worktrees
+of the project are offered in the dropdown — tick the sandbox options you need and press *Start*. *Start in Debug
+Shell* opens a shell in the sandbox instead of the agent.
 
-*Save as Favourite…* stores the configuration; favourites appear on the tool window's start page and in the dropdown
-next to `+` (Shift+click starts one in Debug Shell). A favourite does not store the project path: it starts in the
-IDE project, or — when the project has git worktrees — in the project or a worktree you pick from a short list.
-Project favourites are stored in `.idea/hole.xml`, so they can be shared through version control.
+*Save as Favourite…* stores the configuration; favourites appear on the tool window's start page and in the popup
+of `+` (Shift+click starts one in Debug Shell, in both places). A favourite does not store the project path: it
+starts in the IDE project, or — when the project has git worktrees — in the project or a worktree you pick from a
+short list. Project favourites are stored in `.idea/hole.xml`, so they can be shared through version control.
 
 Closing a tab stops its sandbox. When Hole fails to start, the tab stays open with Hole's output, so you can read the
 error.
