@@ -108,6 +108,7 @@ class HeaderModelTest {
         assertTrue(running.restart());
         assertTrue(running.dockerToggle());
         assertTrue(running.network());
+        assertTrue(running.libraries());
         for (SandboxSession.Snapshot other : java.util.List.of(
             snapshot(SessionState.STARTING, null, null, null),
             snapshot(SessionState.STARTING, INFO, null, null),
@@ -120,6 +121,7 @@ class HeaderModelTest {
             assertFalse(model.restart(), other.toString());
             assertFalse(model.dockerToggle(), other.toString());
             assertFalse(model.network(), other.toString());
+            assertFalse(model.libraries(), other.toString());
         }
     }
 

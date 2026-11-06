@@ -14,6 +14,7 @@ import io.github.lukashornych.hole.idea.hole.HoleExecutable;
 import io.github.lukashornych.hole.idea.hole.HoleModifyClient;
 import io.github.lukashornych.hole.idea.hole.HoleSettingsClient;
 import io.github.lukashornych.hole.idea.hole.SettingsFileResolver;
+import io.github.lukashornych.hole.idea.hole.SettingsLibraries;
 import io.github.lukashornych.hole.idea.model.InstanceInfo;
 import io.github.lukashornych.hole.idea.model.NetworkSetting;
 import io.github.lukashornych.hole.idea.process.CliException;
@@ -22,8 +23,10 @@ import io.github.lukashornych.hole.idea.session.SandboxSession;
 import io.github.lukashornych.hole.idea.session.SandboxSessionManager;
 import io.github.lukashornych.hole.idea.session.SessionPresentation;
 import io.github.lukashornych.hole.idea.session.SessionState;
+import io.github.lukashornych.hole.idea.ui.library.LibrariesDialog;
 import io.github.lukashornych.hole.idea.ui.network.NetworkDialog;
 import io.github.lukashornych.hole.idea.ui.network.SettingsEntrySaver;
+import io.github.lukashornych.hole.idea.ui.settings.SettingsDocuments;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.terminal.JBTerminalSystemSettingsProvider;
@@ -34,10 +37,12 @@ import java.awt.BorderLayout;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Body of one sandbox tab: the header and, below it, the terminal widget connected to the `hole` process.
@@ -74,6 +79,12 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
     private String removedInstance;
     /** Entries the Network window removed from the settings files of {@link #removedInstance}, per setting. */
     private Map<NetworkSetting, Set<String>> removedFromSettings;
+    /** The open Libraries window of this sandbox, {@code null} when none. EDT only. */
+    private LibrariesDialog libraries;
+    /** Instance whose {@link #librariesSnapshot} this is; a restart starts a new one. EDT only. */
+    private String librariesInstance;
+    /** The settings files' libraries when the Libraries window was first opened for {@link #librariesInstance}. */
+    private AtomicReference<List<SettingsLibraries.Library>> librariesSnapshot;
     private JBTerminalWidget widget;
     /** Last model shown in the header; {@code null} before the first render. */
     private HeaderModel rendered;
@@ -86,7 +97,7 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
         this.manager = manager;
         this.header = new SandboxHeaderPanel(
             session::forceStop, () -> manager.requestClose(session), this::toggleDocker, this::restart, this::openSettings,
-            this::openNetwork
+            this::openNetwork, this::openLibraries
         );
         add(this.header, BorderLayout.NORTH);
         // the stopping timer and the Force Stop offer tick locally between polls
@@ -142,6 +153,14 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
             || snapshot.state() != SessionState.RUNNING)) {
             // the window belongs to one instance: a restart, a stop or the exit ends it
             closeNetwork();
+        }
+        if (this.libraries != null) {
+            if (this.libraries.isDisposed() || !this.libraries.instanceId().equals(snapshot.instanceId())) {
+                // stays open in EXITED: a library can be fixed before the sandbox starts again
+                closeLibraries();
+            } else if (snapshot.state() == SessionState.EXITED) {
+                this.libraries.sandboxExited();
+            }
         }
         final HeaderModel model = HeaderModel.of(snapshot, this.session.launch().debug(), this.checkout, Instant.now());
         if (!model.equals(this.rendered)) {
@@ -252,6 +271,7 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
     public void dispose() {
         this.timer.stop();
         closeNetwork();
+        closeLibraries();
     }
 
     /**
@@ -272,9 +292,7 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
         final HoleModifyClient client = new HoleModifyClient(
             launch.executable().toString(), HoleExecutable.getInstance().runner(), directory, snapshot.instanceId()
         );
-        final SettingsEntrySaver saver = new SettingsEntrySaver(this.project, new SettingsFileResolver(
-            new HoleSettingsClient(launch.executable().toString(), HoleExecutable.getInstance().runner())
-        ), directory);
+        final SettingsEntrySaver saver = new SettingsEntrySaver(settingsDocuments(launch, directory));
         final String title = "Network" + SessionPresentation.SEPARATOR + SessionPresentation.projectFolder(directory)
             + SessionPresentation.SEPARATOR + launch.config().agentSpec() + " (" + snapshot.instanceId() + ")";
         if (!snapshot.instanceId().equals(this.removedInstance)) {
@@ -286,6 +304,50 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
         }
         this.network = new NetworkDialog(this.project, client, saver, this.removedFromSettings, title, info.flags().unrestricted(), this::restart);
         this.network.show();
+    }
+
+    /**
+     * Libraries in the header: opens the window for the current instance, or brings the open one to the front.
+     */
+    private void openLibraries() {
+        final SandboxSession.Snapshot snapshot = this.session.snapshot();
+        if (!snapshot.state().isAlive() && snapshot.state() != SessionState.EXITED) {
+            return;
+        }
+        if (this.libraries != null && !this.libraries.isDisposed()) {
+            this.libraries.getWindow().toFront();
+            return;
+        }
+        final InstanceInfo info = snapshot.info();
+        final SandboxSession.Launch launch = this.session.launch();
+        final Path directory = info == null || info.projectPath().isEmpty() ? launch.projectDirectory() : Path.of(info.projectPath());
+        final String title = "Libraries" + SessionPresentation.SEPARATOR + SessionPresentation.projectFolder(directory)
+            + SessionPresentation.SEPARATOR + launch.config().agentSpec() + " (" + snapshot.instanceId() + ")";
+        if (!snapshot.instanceId().equals(this.librariesInstance)) {
+            this.librariesInstance = snapshot.instanceId();
+            this.librariesSnapshot = new AtomicReference<>();
+        }
+        this.libraries = new LibrariesDialog(
+            this.project, settingsDocuments(launch, directory), launch.config().libraries(), this.librariesSnapshot,
+            snapshot.instanceId(), title, () -> this.session.snapshot().state(), this::restart
+        );
+        this.libraries.show();
+    }
+
+    private void closeLibraries() {
+        if (this.libraries != null) {
+            if (!this.libraries.isDisposed()) {
+                this.libraries.close(DialogWrapper.CANCEL_EXIT_CODE);
+            }
+            this.libraries = null;
+        }
+    }
+
+    @NotNull
+    private SettingsDocuments settingsDocuments(@NotNull SandboxSession.Launch launch, @NotNull Path directory) {
+        return new SettingsDocuments(this.project, new SettingsFileResolver(
+            new HoleSettingsClient(launch.executable().toString(), HoleExecutable.getInstance().runner())
+        ), directory);
     }
 
     private void closeNetwork() {

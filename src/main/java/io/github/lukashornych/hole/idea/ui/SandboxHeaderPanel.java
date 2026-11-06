@@ -39,7 +39,8 @@ import java.util.function.Consumer;
  * links (dimmed when the sandbox does not use that file) and project path; the
  * stopping (or restarting) timer with Force Stop; or "Exited with code N" with Close. Fields Hole reports are skeleton
  * placeholders until the first metadata arrives. The network is deliberately not shown. While the sandbox runs, the
- * Docker pill toggles Docker-in-Docker through a restart, and the toolbar at the right end offers Restart.
+ * Docker pill toggles Docker-in-Docker through a restart, and the toolbar at the right end offers Restart, Network…
+ * and Libraries….
  */
 final class SandboxHeaderPanel extends JPanel {
 
@@ -76,6 +77,7 @@ final class SandboxHeaderPanel extends JPanel {
      * @param onRestart      called when Restart is pressed (only enabled while the sandbox runs)
      * @param onSettings     called with the scope when the Global or Project settings link is clicked
      * @param onNetwork      called when Network is pressed (only enabled while the sandbox runs)
+     * @param onLibraries    called when Libraries is pressed
      */
     SandboxHeaderPanel(
         @NotNull Runnable onForceStop,
@@ -83,7 +85,8 @@ final class SandboxHeaderPanel extends JPanel {
         @NotNull Runnable onToggleDocker,
         @NotNull Runnable onRestart,
         @NotNull Consumer<HoleSettingsClient.Scope> onSettings,
-        @NotNull Runnable onNetwork
+        @NotNull Runnable onNetwork,
+        @NotNull Runnable onLibraries
     ) {
         super(new BorderLayout());
         setBorder(JBUI.Borders.compound(JBUI.Borders.customLineBottom(JBUI.CurrentTheme.ToolWindow.borderColor()), JBUI.Borders.empty(2, 6)));
@@ -131,7 +134,9 @@ final class SandboxHeaderPanel extends JPanel {
         add(centre, BorderLayout.CENTER);
 
         this.toolbar = ActionManager.getInstance()
-            .createActionToolbar("HoleSandboxHeader", new DefaultActionGroup(new RestartAction(onRestart), new NetworkAction(onNetwork)), true);
+            .createActionToolbar("HoleSandboxHeader", new DefaultActionGroup(
+                new RestartAction(onRestart), new NetworkAction(onNetwork), new LibrariesAction(onLibraries)
+            ), true);
         this.toolbar.setTargetComponent(this);
         this.toolbar.getComponent().setOpaque(false);
         // no toolbar padding, so the header stays as low as a row of fields
@@ -212,6 +217,35 @@ final class SandboxHeaderPanel extends JPanel {
         @Override
         public void actionPerformed(@NotNull AnActionEvent event) {
             this.onNetwork.run();
+        }
+    }
+
+    /**
+     * Libraries in the header toolbar: opens the editor of the `libraries` in the settings files.
+     */
+    private final class LibrariesAction extends DumbAwareAction {
+        private final Runnable onLibraries;
+
+        private LibrariesAction(@NotNull Runnable onLibraries) {
+            super("Libraries…", "Add, change or remove the libraries in the global or project settings file (applies on restart)",
+                AllIcons.Nodes.PpLib);
+            this.onLibraries = onLibraries;
+        }
+
+        @Override
+        public void update(@NotNull AnActionEvent event) {
+            final HeaderModel current = SandboxHeaderPanel.this.model;
+            event.getPresentation().setEnabled(current != null && current.libraries());
+        }
+
+        @Override
+        public @NotNull ActionUpdateThread getActionUpdateThread() {
+            return ActionUpdateThread.BGT;
+        }
+
+        @Override
+        public void actionPerformed(@NotNull AnActionEvent event) {
+            this.onLibraries.run();
         }
     }
 

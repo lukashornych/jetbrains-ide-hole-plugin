@@ -78,7 +78,8 @@ in `.hole/settings.json` must be allowed for Gradle to resolve the platform. Det
   directories (`PasteDirectory`, `PasteStore`).
 - `storage` — persisted settings and favourites (application and project level).
 - `ui` — tool window (incl. the favourites start page), sandbox tabs, dialogs, settings page; `ui/network` — the
-  runtime network window.
+  runtime network window; `ui/library` — the Libraries window (`libraries` of the settings files); `ui/settings` —
+  settings files edited through their IDE documents.
 - `model`, `git` — value records and `git worktree list` parsing.
 
 Tests use `src/test/resources/fake-hole/hole`, a shell script that mimics Hole 2.6.0 including `settings create` and
