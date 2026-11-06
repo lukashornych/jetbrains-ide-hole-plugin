@@ -10,9 +10,12 @@ import io.github.lukashornych.hole.idea.storage.FavouritesListener;
 import io.github.lukashornych.hole.idea.storage.GlobalFavouritesService;
 import org.jetbrains.annotations.NotNull;
 
+import java.awt.EventQueue;
+import java.awt.event.InputEvent;
+
 /**
  * Renders the {@link EmptyStateModel} into the tool window's empty text: <i>New Sandbox…</i>, up to five favourites
- * (a click starts one in agent mode; the status text drops key modifiers, so Debug Shell stays in the dropdown),
+ * (a click starts one in agent mode, a Shift+click in Debug Shell),
  * <i>More…</i> and <i>Edit Favourites…</i>. Re-rendered when favourites are saved and after the Hole probe. EDT only.
  */
 final class HoleEmptyState {
@@ -51,11 +54,15 @@ final class HoleEmptyState {
                 case NEW_SANDBOX -> this.text.appendLine(line.text(), SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES,
                     event -> NewSandboxAction.showDialog(this.project));
                 case GAP -> this.text.appendLine("");
-                case HEADER, CAPABILITY -> this.text.appendLine(line.text(), SimpleTextAttributes.GRAYED_ATTRIBUTES, null);
+                case HEADER, HINT, CAPABILITY -> this.text.appendLine(line.text(), SimpleTextAttributes.GRAYED_ATTRIBUTES, null);
                 case FAVOURITE -> {
                     this.text.appendLine(line.text(), SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES, event -> {
                         if (line.favourite() != null) {
-                            FavouriteStarter.start(this.project, line.favourite(), false,
+                            // the ActionEvent of StatusText carries no modifiers, but its ClickListener calls the
+                            // listener synchronously from mouseReleased, so the event being dispatched is the click
+                            final boolean debug = FavouritesPopupStep.debugRequested(
+                                EventQueue.getCurrentEvent() instanceof InputEvent input ? input : null);
+                            FavouriteStarter.start(this.project, line.favourite(), debug,
                                 popup -> {
                                     if (this.toolWindow.getComponent().isShowing()) {
                                         popup.showInCenterOf(this.toolWindow.getComponent());

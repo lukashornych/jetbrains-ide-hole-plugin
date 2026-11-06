@@ -1,19 +1,14 @@
 package io.github.lukashornych.hole.idea.ui;
 
-import com.intellij.icons.AllIcons;
-import com.intellij.openapi.actionSystem.ActionUpdateThread;
-import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * The {@code +} tab action: opens <i>New Sandbox</i> and starts what the user chose.
+ * Opens <i>New Sandbox</i> and starts what the user chose; serves the favourites popup and the empty start page.
  */
-final class NewSandboxAction extends DumbAwareAction {
+final class NewSandboxAction {
 
-    NewSandboxAction() {
-        super("New Sandbox…", "Start a new Hole sandbox", AllIcons.General.Add);
+    private NewSandboxAction() {
     }
 
     /**
@@ -25,23 +20,5 @@ final class NewSandboxAction extends DumbAwareAction {
             final NewSandboxDialog.Result result = dialog.result();
             SandboxStarter.start(project, result.config(), result.debug(), result.instanceId());
         }
-    }
-
-    @Override
-    public void actionPerformed(@NotNull AnActionEvent e) {
-        final Project project = e.getProject();
-        if (project != null) {
-            showDialog(project);
-        }
-    }
-
-    @Override
-    public void update(@NotNull AnActionEvent e) {
-        e.getPresentation().setEnabled(e.getProject() != null);
-    }
-
-    @Override
-    public @NotNull ActionUpdateThread getActionUpdateThread() {
-        return ActionUpdateThread.BGT;
     }
 }

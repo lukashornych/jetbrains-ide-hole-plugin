@@ -57,7 +57,7 @@ public final class GlobalFavouritesService implements PersistentStateComponent<F
     }
 
     /**
-     * Returns the favourites of {@code project} followed by the global ones, as shown in the dropdown.
+     * Returns the favourites of {@code project} followed by the global ones, as shown in the favourites popup.
      */
     @NotNull
     public static List<Favourite> all(@NotNull com.intellij.openapi.project.Project project) {

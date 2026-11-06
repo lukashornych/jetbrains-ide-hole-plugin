@@ -29,24 +29,25 @@ agents that never set one, the project folder name is shown instead (plain text)
 - a bug icon when the sandbox runs in debug shell mode,
 - a tooltip with the instance ID and the absolute project path.
 
-**Tab actions** at the end of the tab strip:
+**Tab action** at the end of the tab strip: `+` (*New Sandbox or Favourite*) opens the favourites popup underneath
+it with:
 
-- `+` opens the **New Sandbox** dialog.
-- An arrow next to `+` opens a dropdown with:
-  - favourites grouped into *This project* and *All projects*, each with its agent (`agent` or `agent:profile`) in
-    grey; clicking a favourite starts it (see [Starting a favourite](#starting-a-favourite)), **Shift+click** (or
-    Shift+Enter) starts it in debug shell mode; the popup shows this hint,
-  - *New Sandbox…*,
-  - *Edit Favourites…*.
+- *New Sandbox…* (opens the **New Sandbox** dialog),
+- favourites grouped into *This project* and *All projects* (a labelled separator each), each with its agent (`agent`
+  or `agent:profile`) in grey; clicking a favourite starts it (see [Starting a favourite](#starting-a-favourite)),
+  **Shift+click** (or Shift+Enter) starts it in debug shell mode; the popup shows this hint,
+- *Edit Favourites…* (below a separator when there are favourites).
 
-When no sandbox is running, the tool window shows an empty state: *No sandboxes are running*, a *New Sandbox…* link
-and the favourites grouped into *This project* and *All projects* (grey headers), each with its agent in grey
-(`claude`). Clicking a favourite starts it in agent mode (see [Starting a favourite](#starting-a-favourite)); Debug Shell stays in the dropdown (the
-empty state cannot see Shift). At most **5** favourites are listed (project ones first), because a bottom tool window
-is short and the empty state does not scroll; when there are more, a *More…* link opens the favourites dropdown. The
-last line is *Edit Favourites…*. When Hole cannot start (missing or too old), the favourites are grey text and the
-reason follows them. Without favourites only *New Sandbox…* and *Edit Favourites…* are shown. The empty state follows
-saved favourites at once.
+When no sandbox is running, the tool window shows an empty state: *No sandboxes are running*, a *New Sandbox…* link,
+the grey hint *Shift+click starts in Debug Shell* and the favourites grouped into *This project* and *All projects*
+(grey headers), each with its agent in grey (`claude`). Clicking a favourite starts it in agent mode (see
+[Starting a favourite](#starting-a-favourite)), **Shift+click** starts it in debug shell mode (Shift must still be held
+when the mouse button is released). At most **5** favourites are listed (project ones first), because a bottom tool
+window is short and the empty state does not scroll; the hint takes the place of the empty line above the favourites,
+so it adds no height. When there are more favourites, a *More…* link opens the favourites popup. The last line is
+*Edit Favourites…*. When Hole cannot start (missing or too old), the favourites are grey text, the reason follows
+them, and an empty line replaces the hint. Without favourites only *New Sandbox…* and *Edit Favourites…* are shown.
+The empty state follows saved favourites at once.
 
 ### Starting a favourite
 
@@ -58,8 +59,8 @@ of the IDE project root (`git worktree list --porcelain`, in the background, ane
 - **Linked worktrees** – a popup *Start '<name>' in* lists *Project root* first (selected) and, below a separator,
   every other non-bare worktree with its branch (the folder name when detached) and its absolute path in grey; the
   worktree the project root lies in is not listed again. Speed search filters the list. Choosing an entry starts the
-  favourite there; **Escape** cancels the start. The popup opens underneath the dropdown arrow, or in the middle of the
-  tool window for the start page.
+  favourite there; **Escape** cancels the start. The popup opens underneath `+`, or in the middle of the tool window
+  for the start page.
 
 The mode is decided by the click on the favourite: a Shift+click starts the chosen location in Debug Shell (the popup
 shows *Debug Shell*), and Shift in the location popup is not read. A worktree starts at its top level, also when the

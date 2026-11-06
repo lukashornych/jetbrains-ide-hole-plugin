@@ -15,7 +15,7 @@ import java.util.List;
  * <pre>
  * No sandboxes are running
  * New Sandbox…
- *
+ * Shift+click starts in Debug Shell
  * This project
  *   evita tests   claude:research
  * All projects
@@ -24,8 +24,11 @@ import java.util.List;
  * </pre>
  *
  * <p>At most {@link #LIMIT} favourites are listed, project ones first, because a bottom tool window is short and the
- * status text does not scroll; <i>More…</i> opens the favourites dropdown with all of them. When Hole cannot start
+ * status text does not scroll; <i>More…</i> opens the favourites popup with all of them. When Hole cannot start
  * (missing or too old), the favourites are plain text and the capability message follows them.</p>
+ *
+ * <p>The grey Debug Shell hint takes the place of the empty line above the favourites, so it costs no height; when
+ * Hole cannot start, the empty line stays and no hint is shown.</p>
  *
  * @param lines the lines from top to bottom
  */
@@ -33,6 +36,9 @@ public record EmptyStateModel(@NotNull List<Line> lines) {
 
     /** Most favourites shown on the start page. */
     static final int LIMIT = 5;
+
+    /** Grey hint above the favourites. */
+    static final String DEBUG_HINT = "Shift+click starts in Debug Shell";
 
     public EmptyStateModel {
         lines = List.copyOf(lines);
@@ -58,7 +64,7 @@ public record EmptyStateModel(@NotNull List<Line> lines) {
             return new EmptyStateModel(lines);
         }
         final boolean startable = capability == null || capability.canStart();
-        lines.add(new Line(Kind.GAP, "", "", null));
+        lines.add(startable ? new Line(Kind.HINT, DEBUG_HINT, "", null) : new Line(Kind.GAP, "", "", null));
         FavouriteScope group = null;
         for (Favourite favourite : ordered.subList(0, Math.min(LIMIT, ordered.size()))) {
             if (favourite.scope() != group) {
@@ -87,11 +93,13 @@ public record EmptyStateModel(@NotNull List<Line> lines) {
         TITLE,
         /** The New Sandbox… link. */
         NEW_SANDBOX,
-        /** Empty line before the favourites. */
+        /** Empty line before the favourites when Hole cannot start them. */
         GAP,
+        /** Grey line before startable favourites: Shift+click starts in Debug Shell. */
+        HINT,
         /** Grey group header: "This project" / "All projects". */
         HEADER,
-        /** A favourite link (starts it in agent mode) with its command in grey. */
+        /** A favourite link (starts it in agent mode, with Shift in Debug Shell) with its command in grey. */
         FAVOURITE,
         /** A favourite as plain grey text: Hole cannot start. */
         DISABLED_FAVOURITE,
@@ -99,7 +107,7 @@ public record EmptyStateModel(@NotNull List<Line> lines) {
         CAPABILITY,
         /** The Edit Favourites… link. */
         EDIT_FAVOURITES,
-        /** More… (opens the dropdown) followed by Edit Favourites…. */
+        /** More… (opens the favourites popup) followed by Edit Favourites…. */
         MORE_AND_EDIT
     }
 
