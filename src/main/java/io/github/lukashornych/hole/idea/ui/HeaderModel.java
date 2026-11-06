@@ -20,6 +20,8 @@ import java.time.Instant;
  * @param metadata        metadata fields are known
  * @param docker          Docker-in-Docker sidecar enabled
  * @param dockerToggle    the Docker pill restarts the sandbox with Docker-in-Docker toggled (only while RUNNING)
+ * @param unrestricted    started with unrestricted network (`-u`, `flags.unrestricted` of `hole list`)
+ * @param networkToggle   the Network pill restarts the sandbox with unrestricted network toggled (only while RUNNING)
  * @param globalUsed      the sandbox uses a global settings file (a `global(<path>)` label)
  * @param projectUsed     the sandbox uses a project settings file (a `project` or `project(<path>)` label)
  * @param settingsTooltip settings labels as in `hole list`, e.g. `global(~/.hole/settings.json)+project`
@@ -40,6 +42,8 @@ public record HeaderModel(
     boolean metadata,
     boolean docker,
     boolean dockerToggle,
+    boolean unrestricted,
+    boolean networkToggle,
     boolean globalUsed,
     boolean projectUsed,
     @NotNull String settingsTooltip,
@@ -89,6 +93,8 @@ public record HeaderModel(
             info == null && alive,
             info != null,
             info != null && info.docker(),
+            running && info != null,
+            info != null && info.flags().unrestricted(),
             running && info != null,
             info != null && info.settings().stream().anyMatch(label -> label.startsWith(GLOBAL_LABEL + "(")),
             info != null && info.settings().stream().anyMatch(

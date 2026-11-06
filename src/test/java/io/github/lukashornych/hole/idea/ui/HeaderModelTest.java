@@ -39,12 +39,25 @@ class HeaderModelTest {
         assertFalse(model.pending());
         assertTrue(model.metadata());
         assertTrue(model.docker());
+        assertFalse(model.unrestricted(), "restricted network unless Hole reports the unrestricted flag");
         assertEquals("global(~/.hole/settings.json)+project", model.settingsTooltip());
         assertTrue(model.globalUsed());
         assertTrue(model.projectUsed());
         assertEquals("acme-cms (main)", model.project(), "the main repository shows only its folder name");
         assertEquals("/work/acme-cms", model.projectPath());
         assertFalse(model.debug());
+    }
+
+    @Test
+    void unrestrictedNetworkComesFromTheStartFlags() {
+        final InstanceInfo info = HoleListParser.parse("""
+            [{"instanceId": "r8tq2c", "status": "running", "projectPath": "/work/acme-cms", "flags": {"unrestricted": true}}]
+            """).get(0);
+        final HeaderModel model = HeaderModel.of(snapshot(SessionState.RUNNING, info, null, null), false, HeaderModel.Checkout.NONE, NOW);
+        assertTrue(model.unrestricted());
+        assertTrue(model.networkToggle());
+        assertFalse(HeaderModel.of(snapshot(SessionState.STARTING, null, null, null), false, HeaderModel.Checkout.NONE, NOW).unrestricted(),
+            "unknown until Hole reports: the pill is a skeleton");
     }
 
     @Test
@@ -103,10 +116,11 @@ class HeaderModelTest {
     }
 
     @Test
-    void restartAndDockerToggleOnlyWhileRunning() {
+    void restartAndPillTogglesOnlyWhileRunning() {
         final HeaderModel running = HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, HeaderModel.Checkout.NONE, NOW);
         assertTrue(running.restart());
         assertTrue(running.dockerToggle());
+        assertTrue(running.networkToggle());
         assertTrue(running.network());
         for (SandboxSession.Snapshot other : java.util.List.of(
             snapshot(SessionState.STARTING, null, null, null),
@@ -119,6 +133,7 @@ class HeaderModelTest {
             final HeaderModel model = HeaderModel.of(other, false, HeaderModel.Checkout.NONE, NOW);
             assertFalse(model.restart(), other.toString());
             assertFalse(model.dockerToggle(), other.toString());
+            assertFalse(model.networkToggle(), other.toString());
             assertFalse(model.network(), other.toString());
         }
     }
