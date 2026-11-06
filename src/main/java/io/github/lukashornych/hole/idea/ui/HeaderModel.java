@@ -31,7 +31,7 @@ import java.time.Instant;
  * @param stopping        "Stopping for N s" or "Restarting for N s", {@code null} when not stopping
  * @param forceStop       offer Force Stop
  * @param forceStopCloses Force Stop closes the tab (not during a restart, which goes on after the kill)
- * @param restart         offer Restart (only while RUNNING)
+ * @param restart         enable the toolbar Restart (while RUNNING or EXITED)
  * @param network         offer the Network window (only while RUNNING)
  * @param exited          "Exited with code N", {@code null} unless EXITED
  */
@@ -77,14 +77,15 @@ public record HeaderModel(
         final InstanceInfo info = snapshot.info();
         final boolean alive = snapshot.state().isAlive();
         final boolean running = snapshot.state() == SessionState.RUNNING;
+        final boolean exitedState = snapshot.state() == SessionState.EXITED;
         String stopping = null;
         boolean forceStop = false;
         if (snapshot.state() == SessionState.STOPPING && snapshot.stoppingSince() != null) {
             final Duration since = nonNegative(Duration.between(snapshot.stoppingSince(), now));
             stopping = (snapshot.restartPending() ? "Restarting for " : "Stopping for ") + since.toSeconds() + " s";
-            forceStop = since.compareTo(SandboxSession.FORCE_STOP_AFTER) >= 0;
+            forceStop = since.compareTo(SandboxSession.FORCE_STOP_AFTER) >= 0 && !snapshot.relaunching();
         }
-        final String exited = snapshot.state() == SessionState.EXITED
+        final String exited = exitedState
             ? "Exited with code " + snapshot.exitCode()
             : null;
         return new HeaderModel(
@@ -105,7 +106,7 @@ public record HeaderModel(
             stopping,
             forceStop,
             forceStop && !snapshot.restartPending(),
-            running,
+            running || exitedState,
             running,
             exited
         );

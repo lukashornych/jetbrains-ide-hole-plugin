@@ -116,18 +116,22 @@ class HeaderModelTest {
     }
 
     @Test
-    void restartAndPillTogglesOnlyWhileRunning() {
+    void restartWhileRunningOrExitedAndPillTogglesOnlyWhileRunning() {
         final HeaderModel running = HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, HeaderModel.Checkout.NONE, NOW);
         assertTrue(running.restart());
         assertTrue(running.dockerToggle());
         assertTrue(running.networkToggle());
         assertTrue(running.network());
+        final HeaderModel exited = HeaderModel.of(snapshot(SessionState.EXITED, INFO, 1, null), false, HeaderModel.Checkout.NONE, NOW);
+        assertTrue(exited.restart(), "the toolbar Restart starts an exited sandbox again");
+        assertFalse(exited.dockerToggle(), "the Docker pill stays a plain label");
+        assertFalse(exited.networkToggle(), "the Network pill stays a plain label");
+        assertFalse(exited.network());
         for (SandboxSession.Snapshot other : java.util.List.of(
             snapshot(SessionState.STARTING, null, null, null),
             snapshot(SessionState.STARTING, INFO, null, null),
             snapshot(SessionState.STOPPING, INFO, null, NOW),
             restarting(NOW),
-            snapshot(SessionState.EXITED, INFO, 1, null),
             snapshot(SessionState.CLOSED, INFO, 0, null)
         )) {
             final HeaderModel model = HeaderModel.of(other, false, HeaderModel.Checkout.NONE, NOW);
@@ -136,6 +140,24 @@ class HeaderModelTest {
             assertFalse(model.networkToggle(), other.toString());
             assertFalse(model.network(), other.toString());
         }
+    }
+
+    @Test
+    void relaunchOfAnExitedSandboxShowsRestartingWithoutExitCode() {
+        // while the new process is spawned the session is STOPPING with a pending restart; the old exit code is kept
+        final SandboxSession.Snapshot relaunching = new SandboxSession.Snapshot(
+            SessionState.STOPPING, "r8tq2c", INFO, 1, NOW, "", false, true
+        );
+        final HeaderModel model = HeaderModel.of(relaunching, false, HeaderModel.Checkout.NONE, NOW);
+        assertEquals("Restarting for 0 s", model.stopping());
+        assertNull(model.exited());
+        assertFalse(model.restart(), "no second restart while one is pending");
+        assertFalse(model.forceStop());
+        final HeaderModel late = HeaderModel.of(relaunching, false, HeaderModel.Checkout.NONE, NOW.plusSeconds(31));
+        assertEquals("Restarting for 31 s", late.stopping());
+        assertFalse(late.forceStop(), "no process to kill while the new one is spawned");
+        final HeaderModel restart = HeaderModel.of(restarting(NOW), false, HeaderModel.Checkout.NONE, NOW.plusSeconds(31));
+        assertTrue(restart.forceStop(), "a restart of a running sandbox still offers it");
     }
 
     @Test

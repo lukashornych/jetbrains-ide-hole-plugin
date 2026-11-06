@@ -44,7 +44,8 @@ import java.util.concurrent.TimeoutException;
  *
  * <p>{@link #restart(Launch)} replaces a RUNNING sandbox in the same tab: SIGINT like a close, but when the process has
  * exited a new `hole start` (with a new instance ID and the given launch) is spawned instead of closing the tab. A
- * close request while the restart is pending wins; Force Stop during a restart only kills the old process.</p>
+ * close request while the restart is pending wins; Force Stop during a restart only kills the old process.
+ * {@link #relaunch(Launch)} does the same for an EXITED sandbox, without a process to stop.</p>
  *
  * <p>Thread-safe. Listeners are called on the thread that caused the change (process reaper, poller, terminal
  * emulator or caller thread) and must switch to the EDT themselves.</p>
@@ -162,7 +163,7 @@ public final class SandboxSession {
      */
     @Nullable
     public synchronized Path pasteDirectory() {
-        return this.attempt == null || !this.state.isAlive() ? null : this.attempt.pasteDirectory;
+        return this.attempt == null || this.attempt.exited || !this.state.isAlive() ? null : this.attempt.pasteDirectory;
     }
 
     /**
@@ -254,6 +255,41 @@ public final class SandboxSession {
     }
 
     /**
+     * Starts an EXITED sandbox again in the same tab: a new `hole start` with a new instance ID and {@code next}, like
+     * the second half of {@link #restart(Launch)}. Blocking (spawns the process); call off the EDT.
+     *
+     * <p>While the new process is spawned the session is STOPPING with a pending restart (shown as "Restarting"), so a
+     * second relaunch or restart is refused and a close request wins: it closes the tab, and a process spawned
+     * meanwhile gets SIGINT. When the new process cannot be spawned, the session is EXITED again with the old exit code
+     * and {@link Listener#restartFailed(SandboxSession, String)} is called.</p>
+     *
+     * @param next what to start
+     * @return {@code false} when the session is not EXITED (or a close was requested); nothing changed then
+     */
+    public boolean relaunch(@NotNull Launch next) {
+        Objects.requireNonNull(next, "next");
+        final Attempt exited;
+        final int code;
+        synchronized (this) {
+            if (this.state != SessionState.EXITED || this.closeRequested || this.disposed || this.attempt == null
+                || this.exitCode == null) {
+                return false;
+            }
+            exited = this.attempt;
+            code = this.exitCode;
+            this.restartPending = true;
+            this.pendingLaunch = next;
+            // the old process may have been stopping before it failed: the "Restarting" timer starts now
+            this.stoppingSince = null;
+            enterStoppingLocked();
+        }
+        LOG.info("Relaunching exited sandbox " + exited.instanceId + " (" + next.describe() + ")");
+        fireChanged();
+        restartExited(exited, code, next);
+        return true;
+    }
+
+    /**
      * Force Stop: SIGKILL to the process group of `hole start`. The tab closes when it exits; Hole's watchdog, which
      * runs in its own session and is therefore not killed, keeps tearing the sandbox down in the background. During a
      * pending restart only the old process is killed: the tab stays and the restart goes on once it has exited.
@@ -278,11 +314,12 @@ public final class SandboxSession {
 
     /**
      * Returns {@code true} when Force Stop should be offered: the sandbox has been stopping for at least
-     * {@link #FORCE_STOP_AFTER}.
+     * {@link #FORCE_STOP_AFTER} and a process may still run (see {@link Snapshot#relaunching()}).
      */
     public boolean canForceStop(@NotNull Instant now) {
         final Snapshot snapshot = snapshot();
         return snapshot.state() == SessionState.STOPPING
+            && !snapshot.relaunching()
             && snapshot.stoppingSince() != null
             && !now.isBefore(snapshot.stoppingSince().plus(FORCE_STOP_AFTER));
     }
@@ -428,6 +465,7 @@ public final class SandboxSession {
 
         // before the duplicate-ID check: the exit after SIGINT is expected and the output wait would only delay
         if (restartWith != null) {
+            LOG.info("Sandbox " + exited.instanceId + " stopped for a restart (exit code " + code + ")");
             restartExited(exited, code, restartWith);
             return;
         }
@@ -455,7 +493,8 @@ public final class SandboxSession {
     }
 
     /**
-     * The process stopped by {@link #restart(Launch)} has exited: starts the new one with a new instance ID. When it
+     * The process stopped by {@link #restart(Launch)} has exited, or an EXITED session is relaunched
+     * ({@link #relaunch(Launch)}): starts the new one with a new instance ID. When it
      * cannot be spawned, the session becomes EXITED with the old exit code and the listener is told.
      */
     private void restartExited(@NotNull Attempt exited, int code, @NotNull Launch next) {
@@ -466,7 +505,7 @@ public final class SandboxSession {
             return;
         }
         final String newId = this.services.instanceIds().get();
-        LOG.info("Sandbox " + exited.instanceId + " stopped for a restart (exit code " + code + "); starting it as " + newId);
+        LOG.info("Starting sandbox " + exited.instanceId + " again as " + newId);
         final Attempt nextAttempt;
         try {
             nextAttempt = spawn(next, newId);
@@ -660,6 +699,15 @@ public final class SandboxSession {
         boolean closeRequested,
         boolean restartPending
     ) {
+
+        /**
+         * Returns {@code true} while an EXITED sandbox is started again ({@link #relaunch(Launch)}): STOPPING with the
+         * old exit code still set, which no other stop has. There is no process to kill then, so Force Stop is not
+         * offered.
+         */
+        public boolean relaunching() {
+            return this.state == SessionState.STOPPING && this.exitCode != null;
+        }
     }
 
     /**

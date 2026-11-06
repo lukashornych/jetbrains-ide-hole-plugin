@@ -10,6 +10,8 @@ package io.github.lukashornych.hole.idea.session;
  *               otherwise                                    --> EXITED (the tab stays with "Exited with code N")
  * EXITED --(Close)--> CLOSED
  * RUNNING --(restart: SIGINT)--> STOPPING --(process exit, new process)--> STARTING (same tab, new instance ID)
+ * EXITED --(restart)--> STOPPING ("Restarting" while the new process is spawned) --> STARTING (same tab, new instance ID)
+ *                                spawn failure --> EXITED (old exit code); close request --> CLOSED
  * </pre>
  */
 public enum SessionState {
@@ -19,7 +21,10 @@ public enum SessionState {
     RUNNING,
     /** Teardown has begun (Hole reported it, or the plugin sent SIGINT). */
     STOPPING,
-    /** The process ended on its own with a non-zero exit code; the tab stays so the output can be read. */
+    /**
+     * The process ended on its own with a non-zero exit code; the tab stays so the output can be read, and the sandbox
+     * can be closed or restarted.
+     */
     EXITED,
     /** Finished; the tab is (being) removed. */
     CLOSED;

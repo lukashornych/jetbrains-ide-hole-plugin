@@ -101,16 +101,20 @@ The **header** shows, in this order:
   only in the *Network…* window,
 - whether the Docker-in-Docker sidecar is enabled; while the sandbox runs, clicking the pill restarts it with
   Docker-in-Docker toggled (see *Restart* below; the favourite it was started from is not changed),
-- a small toolbar at the right end with **Restart** and **Network…**, both enabled only while the sandbox runs.
+- a small toolbar at the right end with **Restart** (enabled while the sandbox runs or has exited) and **Network…**
+  (enabled only while the sandbox runs).
 
 The instance ID is known from the start (the plugin chooses it). The other fields (the project first) are rendered
 lazily, with skeleton placeholders until Hole reports the instance. While the sandbox is stopping, the header shows
 *Stopping for N s* (*Restarting for N s* during a restart), and after 30 seconds it offers a **Force Stop** button.
+After Hole has failed, the header shows *Exited with code N* with a **Close** button, and the toolbar's **Restart**
+starts it again; the Network and Docker pills stay plain labels then.
 
-**Restart** (toolbar, or the Network / Docker pill) always asks first: *Restart 'claude' in 'my-project'? The agent
-session ends and a new sandbox starts in this tab.* (with *with unrestricted network enabled/disabled* or *with
-Docker-in-Docker enabled/disabled* for the pills), plus *N network entries added with 'hole modify' will be lost.*
-when `hole list` reports runtime entries. There is no *Do not ask again*. See [Sandbox lifecycle](#sandbox-lifecycle)
+**Restart** of a running sandbox (toolbar, or the Network / Docker pill) always asks first: *Restart 'claude' in
+'my-project'? The agent session ends and a new sandbox starts in this tab.* (with *with unrestricted network
+enabled/disabled* or *with Docker-in-Docker enabled/disabled* for the pills), plus *N network entries added with
+'hole modify' will be lost.* when `hole list` reports runtime entries. There is no *Do not ask again*. Restart of an
+exited sandbox (toolbar) asks nothing: there is no agent session to lose. See [Sandbox lifecycle](#sandbox-lifecycle)
 for what a restart does.
 
 ### Runtime network
@@ -325,8 +329,8 @@ writes Ctrl-C (`0x03`) to the pty.
   the previously selected tab is selected.
 - **Hole fails** (the `hole` process exits with a non-zero code without the plugin having stopped it, e.g. an unknown
   profile or Docker not running): the tab stays open so the error output can be read, the header shows
-  *Exited with code N* and a **Close** button. Stops requested by the plugin (tab close, Force Stop, IDE exit) always
-  close the tab, whatever the exit code (Hole exits with 130 on SIGINT).
+  *Exited with code N* with a **Close** button; the toolbar's **Restart** starts it again. Stops requested by the plugin (tab close, Force Stop,
+  IDE exit) always close the tab, whatever the exit code (Hole exits with 130 on SIGINT).
 - **Tab is closed by the user**: no confirmation. The plugin sends SIGINT to the process group of `hole start`, the
   tab shows the stopping state, and when the process exits the tab closes and the previously selected tab is selected.
   After 30 seconds the header offers *Force Stop*, which sends SIGKILL to the process group; Hole's watchdog survives
@@ -338,6 +342,16 @@ writes Ctrl-C (`0x03`) to the pty.
   changed after `hole update`). The terminal widget is replaced, so the old output is gone. Force Stop during a
   restart only kills the old process; the restart goes on. A close request during a pending restart wins and closes
   the tab. When the new process cannot be started, the tab shows *Exited with code N* and a notification tells the
-  user that the old sandbox is gone.
+  user that the sandbox has stopped and the new Hole process could not be started.
+- **Restart of an exited sandbox** (header toolbar; no confirmation): there is
+  no process to stop, so `hole start` runs again at once **in the same tab** with a new instance ID, the same mode and
+  config, a freshly read shell environment and a fresh probe of Hole, exactly as above. While the new process is
+  spawned the header shows *Restarting for N s* without *Force Stop* (there is no process to kill yet); a second
+  Restart is ignored then (also a second click whose turn comes only after the sandbox runs again — it never stops it
+  without the confirmation), and *Close* (closing the tab) wins: the tab closes and a process spawned meanwhile gets
+  SIGINT. When the shell environment cannot be read or Hole cannot
+  be used, the user is told and the tab stays exited. When the new process cannot be started, the tab stays at
+  *Exited with code N* with the **old** exit code and the restart notification tells the user why. A sandbox that
+  exited after a failed restart is restarted the same way.
 - **IDE is closed**: the plugin sends SIGINT to the process group of every running sandbox and does **not** wait for
   shutdown, because no tab needs to be selected afterwards.

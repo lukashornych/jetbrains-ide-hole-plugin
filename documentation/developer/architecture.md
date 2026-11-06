@@ -83,6 +83,9 @@ STARTING|RUNNING --(Hole reports stopping, or the plugin sends SIGINT)--> STOPPI
 process exit: stop requested by the plugin, or exit code 0 --> CLOSED  (the tab is removed)
               otherwise                                     --> EXITED  (the tab stays: "Exited with code N")
 EXITED --(Close)--> CLOSED
+RUNNING --(restart: SIGINT)--> STOPPING --(process exit, new process)--> STARTING  (same tab, new instance ID)
+EXITED  --(restart)--> STOPPING ("Restarting", while spawning) --> STARTING        (same tab, new instance ID)
+                       spawn failure --> EXITED (old exit code); close request --> CLOSED
 ```
 
 Whether a tab closes depends only on *who asked for the stop* and on the exit code — never on Hole's `stopping`
@@ -93,7 +96,11 @@ status, which can be missed between two polls.
   session starts once more with a new ID in the same tab. `HoleTtyConnector` sees what the terminal reads only to
   recognise that one error.
 - **Restart** replaces a running sandbox in the same tab: SIGINT like a close, and when the process has exited a new
-  `hole start` with a new instance ID and a fresh probe. The terminal widget is replaced.
+  `hole start` with a new instance ID and a fresh probe. The terminal widget is replaced. An EXITED sandbox is
+  restarted by `SandboxSession.relaunch`: it switches to STOPPING with a pending restart **under the same lock that
+  checks EXITED**, then runs the second half of a restart (`restartExited`). Leaving it EXITED during the spawn would
+  break two things: a Close in EXITED goes straight to CLOSED without `closeRequested`, so the spawned process would
+  revive a closed tab; and a second Restart would spawn a second `hole start` and orphan one of them.
 - **Thread safety.** `SandboxSession` is thread-safe; its listeners are called on whichever thread caused the change
   (process reaper, poller, terminal emulator) and must switch to the EDT themselves.
 
