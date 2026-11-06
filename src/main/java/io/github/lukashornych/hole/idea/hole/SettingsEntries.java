@@ -31,7 +31,7 @@ import java.util.stream.Collectors;
  */
 public final class SettingsEntries {
 
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
+    static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     /** Ports of an allow entry without a port list, as Hole's `network.DefaultPorts`. */
     private static final String DEFAULT_PORTS = "80,443";
@@ -135,8 +135,13 @@ public final class SettingsEntries {
         return changed ? Optional.of(GSON.toJson(root) + "\n") : Optional.empty();
     }
 
+    /**
+     * Parses a settings document; a blank one counts as {@code {}}.
+     *
+     * @throws IllegalArgumentException the document is not valid JSON or not a JSON object
+     */
     @NotNull
-    private static JsonObject parse(@NotNull String json) {
+    static JsonObject parse(@NotNull String json) {
         final JsonElement root;
         try {
             root = json.isBlank() ? new JsonObject() : JsonParser.parseString(json);

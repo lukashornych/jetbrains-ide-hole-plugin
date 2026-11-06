@@ -1,7 +1,7 @@
 ---
 title: The Network window reads, saves and removes its entries in the global and project settings files by editing the JSON itself
 date: 2026-11-05
-updated: 2026-11-05 22:30
+updated: 2026-11-06 07:00
 status: proposed
 kind: feature
 issues: []
@@ -9,7 +9,7 @@ prs: []
 areas: [src/main/java/io/github/lukashornych/hole/idea/hole, src/main/java/io/github/lukashornych/hole/idea/ui/network]
 supersedes: []
 superseded-by: []
-relates: []
+relates: [2026-11-05-day-to-day-settings-editable-in-the-gui]
 ---
 
 # The Network window reads, saves and removes its entries in the global and project settings files by editing the JSON itself
@@ -59,6 +59,12 @@ dropped: it is lost when the window reopens and cannot locate entries saved earl
 
 **Chosen: Option A**, limited to the top-level arrays of the two `hole modify` settings so it cannot grow into a
 settings editor (the exception is written into the guidelines).
+
+**2026-11-05:** the "cannot grow into a settings editor" limit was lifted by
+[day-to-day settings editable in the GUI](2026-11-05-day-to-day-settings-editable-in-the-gui.md): curated,
+top-level, day-to-day settings may now get a narrow editor (libraries are the second); a generic settings editor
+stays out. The rest of this decision stands; `SettingsEntrySaver` now writes through the shared
+`ui/settings/SettingsDocuments`.
 
 ## Key technical details
 

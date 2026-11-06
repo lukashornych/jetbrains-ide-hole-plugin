@@ -122,11 +122,13 @@ class HeaderModelTest {
         assertTrue(running.dockerToggle());
         assertTrue(running.networkToggle());
         assertTrue(running.network());
+        assertTrue(running.libraries());
         final HeaderModel exited = HeaderModel.of(snapshot(SessionState.EXITED, INFO, 1, null), false, HeaderModel.Checkout.NONE, NOW);
         assertTrue(exited.restart(), "the toolbar Restart starts an exited sandbox again");
         assertFalse(exited.dockerToggle(), "the Docker pill stays a plain label");
         assertFalse(exited.networkToggle(), "the Network pill stays a plain label");
         assertFalse(exited.network());
+        assertFalse(exited.libraries());
         for (SandboxSession.Snapshot other : java.util.List.of(
             snapshot(SessionState.STARTING, null, null, null),
             snapshot(SessionState.STARTING, INFO, null, null),
@@ -139,6 +141,7 @@ class HeaderModelTest {
             assertFalse(model.dockerToggle(), other.toString());
             assertFalse(model.networkToggle(), other.toString());
             assertFalse(model.network(), other.toString());
+            assertFalse(model.libraries(), other.toString());
         }
     }
 

@@ -35,6 +35,7 @@ filename date that disagrees with `date:`.
 |------|--------|------|--------|------|
 | 2026-11-05 | [The Network window reads, saves and removes its entries in the global and project settings files by editing the JSON itself](2026-11-05-network-entries-saved-to-settings-by-the-plugin.md) | feature | proposed | — |
 | 2026-11-05 | [Sandbox tabs are shown side by side through the platform's tool window split, with one listener per tab](2026-11-05-tool-window-panes-use-the-platform-split.md) | feature | proposed | — |
+| 2026-11-05 | [Common day-to-day settings may be edited in the GUI, each through a narrow editor of one top-level key; libraries are the second](2026-11-05-day-to-day-settings-editable-in-the-gui.md) | feature | proposed | — |
 | 2026-11-04 | [The plugin reads the user's login-shell environment itself before every start, and does not start without it](2026-11-04-plugin-reads-shell-environment.md) | fix | proposed | — |
 | 2026-10-28 | [Favourites store no project path; the project root or a git worktree is chosen at start](2026-10-28-favourite-project-path-chosen-at-start.md) | feature | accepted | — |
 

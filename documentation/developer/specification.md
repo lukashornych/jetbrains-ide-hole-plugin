@@ -121,8 +121,8 @@ The **header** shows, in this order:
   only in the *Network…* window,
 - whether the Docker-in-Docker sidecar is enabled; while the sandbox runs, clicking the pill restarts it with
   Docker-in-Docker toggled (see *Restart* below; the favourite it was started from is not changed),
-- a small toolbar at the right end with **Restart** (enabled while the sandbox runs or has exited) and **Network…**
-  (enabled only while the sandbox runs).
+- a small toolbar at the right end with **Restart** (enabled while the sandbox runs or has exited), **Network…** and
+  **Libraries…** (both enabled only while the sandbox runs).
 
 The instance ID is known from the start (the plugin chooses it). The other fields (the project first) are rendered
 lazily, with skeleton placeholders until Hole reports the instance. While the sandbox is stopping, the header shows
@@ -214,6 +214,70 @@ gateway conflict); 3 → *The sandbox is not running or still starting* (for a s
 *Restart Sandbox* button); 4 → *The gateway did not apply the change; the previous allow list is still in force* with
 Hole's message; anything else → Hole's message.
 
+### Libraries
+
+**Libraries…** opens a non-modal window for the sandbox, titled `Libraries · my-project · claude (k3x9a2)`, that
+edits the top-level `libraries` of the global and project settings files (Hole cannot change the mounts of a running
+sandbox, so every change applies on the next start). One window per sandbox (pressing *Libraries…* again brings it to
+the front); it closes when the sandbox restarts (a new instance) or its tab closes, but it **stays open when the
+sandbox exits with an error**, so a library can be fixed before it is started again.
+
+The table *Host path* | *Mount path* | *Access* (`read-only` / `read-write`) | *Source* lists:
+
+- `global` / `project` — the top-level `libraries` of the settings files, read through their IDE documents (unsaved
+  editor changes count). Hole merges the two files per **literal** key: the same key in both is listed once as
+  `project (overrides global)` with the merged value (two objects merge field by field, so a project entry without
+  `readwrite` keeps a global `readwrite: true`; any other combination takes the project value). An entry that is not
+  a string or an object with a `path` shows *(not a valid library value)*.
+- `this start` — the `--library` values of the sandbox's start (New Sandbox or favourite; read-only here); a value
+  without a mount path is mounted at its host path, like Hole does. The image paste folder is not listed.
+- A host path that names the same directory as another row under a different key (`~/lib` and `/home/me/lib`,
+  compared after `~` expansion, relative paths in the project directory, without `$VAR` expansion) is marked `⚠`;
+  selecting it says *Same directory as … — Hole mounts only one of them*, or that the `--library` value of this start
+  wins.
+- Libraries of `profiles.<name>.libraries` and the git worktree links are **not** listed; a grey note under the table
+  says so. A file that cannot be read (not valid JSON, `libraries` not an object) counts as empty and the window says
+  why.
+
+The first time the window opens for a sandbox instance it remembers the files' libraries (the tab keeps this
+snapshot per instance, so a reopened window still compares with it; a restart takes a new one). It is not taken
+while a file cannot be read, so a repaired file does not show all its libraries as changed. Rows that differ
+from it are marked *restart to apply* in *Source*; libraries that left the files stay listed as *removed — restart to
+apply* (still mounted until the restart). Changes made in the files before the first opening are not marked.
+
+Actions (all run in the background; the buttons are disabled meanwhile):
+
+- **Add…** — a dialog with the host directory (folder chooser), the mount path (prefilled with the host path, Hole's
+  `--library` default; the settings file needs it written out), *Read-write* and **Save to** *Global settings (every
+  project)* or *Project settings*; the project choice notes *The next start asks you to trust the project's settings
+  again* (Hole gates `libraries` of a project file behind its trust prompt, and any change of them asks again). The
+  mount path must be absolute, in the sandbox home (`~/…`) or start with a variable (`$HOME/…`, expanded by Hole). In the background the host path must be an existing
+  directory (not checked for a path with `$`, which Hole expands from its environment first) and must not already be in the chosen file (also not under another key for the same directory); a
+  failure is shown in the dialog, which stays open. A missing file is created from Hole's template
+  (`hole settings create`) without another question. A read-only library is written in the shorthand
+  `"~/lib": "/libs/lib"`, a read-write one as `{"path": "/libs/lib", "readwrite": true}`. The plugin does not check
+  whether the global settings file would lie inside the library (Hole refuses that only for a `HOLE_SETTINGS_FILE`
+  override and reports it in the tab).
+- **Edit…** (or double-click) — the mount path and *Read-write* of a library of a file; a `project (overrides
+  global)` row edits the project file. A shorthand stays a shorthand unless it becomes read-write; an object keeps
+  its form and gets both `path` and `readwrite` written out (an explicit `false` is the only way to switch off a
+  global `readwrite: true` from the project file). Saving without a change writes nothing.
+- **Remove** — a confirmation names the file: *Remove ~/lib from the global settings file?* with *This affects every
+  project.*, or for the project file the trust note (and *The global entry for it applies again.* for an override).
+  `this start` rows and removed rows cannot be edited or removed.
+- **Refresh** reloads both files.
+
+Every change edits the file through its IDE document (undoable, unsaved editor edits kept), keeps everything else in
+the file (two-space indent, key order, untouched entries in their form) and never touches `profiles`. When the user
+closes the window (*Close*, Esc, the title bar) after a change, the usual **Restart Sandbox** confirmation appears
+once while the sandbox runs; *Cancel* keeps it running with the rows marked. Once the sandbox has exited, no question
+is asked: the window shows *The sandbox has exited: press Restart in the sandbox header to start it with the changed
+libraries.* The window closed by the sandbox tab asks nothing.
+
+*Libraries…* is enabled only while the sandbox runs until a sandbox that exited with an error can be restarted from
+its header (a separate change); until then the EXITED flow above applies only to a window opened while the sandbox
+was running, and the hint names a Restart that is not offered yet.
+
 ### Image paste
 
 An agent in the sandbox cannot read the host clipboard, and the terminal pastes text only. So in a sandbox tab,
@@ -299,7 +363,11 @@ environment). The calls run in the background, debounced, and again whenever the
 background (Hole writes its template with `$schema`, so the IDE validates the JSON); the dialog stays open and re-runs
 its checks, so the row switches to *Open* and agent / profile suggestions are refreshed. The plugin never passes
 `--overwrite` / `--append`.
-The plugin does **not** provide a GUI for the settings content, because Hole's settings keys change often.
+The plugin does **not** provide a GUI for the settings content in general, because Hole's settings keys change
+often. Only a few common day-to-day settings get a narrow editor of their own — the network entries of the
+[Network window](#runtime-network) and the [libraries](#libraries) — each limited to its top-level key; everything
+else is edited in the file. The files stay Hole's: unknown keys are kept, and the plugin never validates them beyond
+the key it edits.
 
 ## How it will work
 

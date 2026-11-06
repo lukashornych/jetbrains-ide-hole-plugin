@@ -32,15 +32,18 @@ network policy. This plugin gives Hole a home in the IDE:
 - **favourites** — saved sandbox configurations for this project or all projects, one click to start,
 - a **sandbox header** with the project, the instance, the settings files in use, the network mode (restricted or
   unrestricted) and Docker-in-Docker — click either pill to restart the sandbox with it toggled — plus *Restart* (also
-  of a sandbox whose start failed) and *Network…*,
+  of a sandbox whose start failed), *Network…* and *Libraries…*,
 - a **Network** window to allow blocked domains while the sandbox runs (`hole modify` with a GUI), optionally saving
   them to the global or project settings file as well (and removing them from there again),
+- a **Libraries** window to add, change or remove the libraries (extra mounted directories) of the global or project
+  settings file, with a restart offer to apply them,
 - **image paste** — paste a screenshot into the agent with `Cmd+V` / `Ctrl+V`, although the sandbox cannot read
   your clipboard,
 - clickable file paths in the agent's output, and clean stopping of sandboxes when a tab or the IDE closes.
 
 The plugin does not replace Hole or change how it isolates the agent: it runs `hole` exactly as you would, and
-Hole's settings files remain the place to configure sandboxes.
+Hole's settings files remain the place to configure sandboxes — only a few day-to-day settings (allowed domains,
+libraries) can also be changed from the IDE, and those edits keep everything else in the file as it is.
 
 ## Requirements
 

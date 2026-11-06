@@ -33,6 +33,7 @@ import java.time.Instant;
  * @param forceStopCloses Force Stop closes the tab (not during a restart, which goes on after the kill)
  * @param restart         enable the toolbar Restart (while RUNNING or EXITED)
  * @param network         offer the Network window (only while RUNNING)
+ * @param libraries       offer the Libraries window (only while RUNNING)
  * @param exited          "Exited with code N", {@code null} unless EXITED
  */
 public record HeaderModel(
@@ -54,6 +55,7 @@ public record HeaderModel(
     boolean forceStopCloses,
     boolean restart,
     boolean network,
+    boolean libraries,
     @Nullable String exited
 ) {
 
@@ -107,6 +109,7 @@ public record HeaderModel(
             forceStop,
             forceStop && !snapshot.restartPending(),
             running || exitedState,
+            running,
             running,
             exited
         );

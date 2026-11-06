@@ -3,20 +3,15 @@ package io.github.lukashornych.hole.idea.ui.network;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.impl.LaterInvocator;
-import com.intellij.openapi.command.WriteCommandAction;
-import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.util.io.NioFiles;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.fixtures.BasePlatformTestCase;
 import io.github.lukashornych.hole.idea.hole.HoleSettingsClient;
-import io.github.lukashornych.hole.idea.hole.SettingsEntries;
 import io.github.lukashornych.hole.idea.hole.SettingsFileResolver;
 import io.github.lukashornych.hole.idea.model.NetworkSetting;
 import io.github.lukashornych.hole.idea.process.CliRunner;
 import io.github.lukashornych.hole.idea.testutil.FakeHole;
+import io.github.lukashornych.hole.idea.ui.settings.SettingsDocuments;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,9 +40,9 @@ public class SettingsEntrySaverTest extends BasePlatformTestCase {
         this.global = this.temp.resolve("config/hole/settings.json");
         this.projectDir = Files.createDirectories(this.temp.resolve("project"));
         hole.environment().put("HOLE_SETTINGS_FILE", this.global.toString());
-        this.saver = new SettingsEntrySaver(getProject(), new SettingsFileResolver(
+        this.saver = new SettingsEntrySaver(new SettingsDocuments(getProject(), new SettingsFileResolver(
             new HoleSettingsClient(hole.executable().toString(), new CliRunner(hole::environment))
-        ), this.projectDir);
+        ), this.projectDir));
     }
 
     @Override
@@ -80,22 +75,6 @@ public class SettingsEntrySaverTest extends BasePlatformTestCase {
         final Optional<String> failure = save(HoleSettingsClient.Scope.GLOBAL, NetworkSetting.ALLOW, List.of("a.example.com"));
         assertTrue(failure.toString(), failure.orElseThrow().endsWith("was not changed: `network` is not an object"));
         assertEquals("{\"network\": true}", Files.readString(this.global));
-    }
-
-    public void testUnsavedEditorChangesAreKept() throws Exception {
-        Files.createDirectories(this.global.getParent());
-        Files.writeString(this.global, "{}");
-        final VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(this.global);
-        assertNotNull(file);
-        final Document document = FileDocumentManager.getInstance().getDocument(file);
-        assertNotNull(document);
-        WriteCommandAction.runWriteCommandAction(getProject(), () -> document.setText("{\"container\": {\"memory\": 4}}"));
-
-        assertNull(this.saver.write(file, text -> SettingsEntries.withEntries(text, NetworkSetting.ALLOW, List.of("a.example.com"))));
-
-        final String saved = Files.readString(this.global);
-        assertTrue(saved, saved.contains("\"memory\": 4"));
-        assertTrue(saved, saved.contains("\"a.example.com\""));
     }
 
     /**
