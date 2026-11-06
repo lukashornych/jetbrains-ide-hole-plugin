@@ -71,6 +71,10 @@ next to `+` (Shift+click starts one in Debug Shell). A favourite does not store 
 IDE project, or — when the project has git worktrees — in the project or a worktree you pick from a short list.
 Project favourites are stored in `.idea/hole.xml`, so they can be shared through version control.
 
+To watch several sandboxes at once, split the tool window: right-click a tab and choose *Split Right* or
+*Split Down*, or drag a tab to an edge of the window. Each pane has its own `+`, and a new sandbox opens in the pane
+whose `+` you clicked.
+
 Closing a tab stops its sandbox. When Hole fails to start, the tab stays open with Hole's output, so you can read the
 error.
 

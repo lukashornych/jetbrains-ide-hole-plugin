@@ -23,6 +23,13 @@ report *Compatible* with no deprecated or internal API usages for every recommen
 supported IDE versions, pick the one that works on all of them (see `HoleTtyConnector` for an example) and say why
 in the class Javadoc.
 
+**The one known exception** is the tool window split opt-in, `HoleToolWindowFactory.allowTabSplitting`: no stable API
+covers every supported IDE, so it sets the `ToolWindowContentUi.ALLOW_DND_FOR_TABS` client property (deprecated from
+2025.3, the only way in 2025.2) and calls `ToolWindow.setTabsSplittingAllowed(true)` (`@ApiStatus.Experimental`, the
+only way from 2026.1, called reflectively because 2025.2 lacks it). The method is marked `@ApiStatus.Experimental`.
+`verifyPlugin` reports the deprecated key on 2025.3+; that warning is expected, any other one is not. Never add a
+second exception without a record in `documentation/adr/`.
+
 ## Java conventions
 
 - Modern Java: records for value types, `final` classes unless designed for extension, `final` local variables,
