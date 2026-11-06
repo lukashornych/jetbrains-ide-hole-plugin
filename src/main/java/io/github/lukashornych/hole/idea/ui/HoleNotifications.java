@@ -70,7 +70,7 @@ public final class HoleNotifications implements StartFailureNotifier {
     @Override
     public void restartFailed(@NotNull String reason) {
         notify("Hole sandbox could not be restarted",
-            "The old sandbox is gone, and the new Hole process could not be started: " + reason, NotificationType.ERROR);
+            "The sandbox has stopped, and the new Hole process could not be started: " + reason, NotificationType.ERROR);
     }
 
     /**

@@ -264,18 +264,7 @@ cmd_start() {
     project_name="$(basename "$project_path")"
     started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-    write_instance "$file" starting
-    echo "Instance ID: $id"
-    if [ -n "${FAKE_HOLE_PRINT_ENV:-}" ]; then
-        echo "$FAKE_HOLE_PRINT_ENV=$(printenv "$FAKE_HOLE_PRINT_ENV" || true)"
-    fi
-
-    if [ -n "${FAKE_HOLE_START_EXIT:-}" ]; then
-        rm -f "$file"
-        error "fake start failure"
-        exit "$FAKE_HOLE_START_EXIT"
-    fi
-
+    # before the instance is registered, like Hole: a SIGINT right after the registration still tears it down
     teardown() {
         write_instance "$file" stopping
         echo "Destroying sandbox $id..."
@@ -289,6 +278,18 @@ cmd_start() {
         trap 'teardown 130' INT
         trap 'teardown 143' TERM
         trap 'teardown 129' HUP
+    fi
+
+    write_instance "$file" starting
+    echo "Instance ID: $id"
+    if [ -n "${FAKE_HOLE_PRINT_ENV:-}" ]; then
+        echo "$FAKE_HOLE_PRINT_ENV=$(printenv "$FAKE_HOLE_PRINT_ENV" || true)"
+    fi
+
+    if [ -n "${FAKE_HOLE_START_EXIT:-}" ]; then
+        rm -f "$file"
+        error "fake start failure"
+        exit "$FAKE_HOLE_START_EXIT"
     fi
 
     # foreground, like Hole waiting for `docker compose build`; the shell runs its own trap only once it ends

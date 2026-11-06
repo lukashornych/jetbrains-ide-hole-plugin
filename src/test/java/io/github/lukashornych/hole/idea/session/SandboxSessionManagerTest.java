@@ -25,7 +25,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -34,6 +36,7 @@ import java.util.function.Supplier;
 import static io.github.lukashornych.hole.idea.testutil.Waiting.waitUntil;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -50,6 +53,11 @@ class SandboxSessionManagerTest {
     private FakeHole hole;
     private FakeShell shell;
     private ShellEnvironment shellEnvironment;
+    /** Runs before every shell environment read of the manager, with the 1-based number of the read. */
+    private volatile java.util.function.IntConsumer beforeEnvironmentRead = read -> { };
+    private final java.util.concurrent.atomic.AtomicInteger environmentReads = new java.util.concurrent.atomic.AtomicInteger();
+    /** When set, the next task given to the background executor waits for this latch. */
+    private final java.util.concurrent.atomic.AtomicReference<CountDownLatch> holdNextTask = new java.util.concurrent.atomic.AtomicReference<>();
     private Path project;
     private MetadataPoller poller;
     private ExecutorService background;
@@ -77,10 +85,14 @@ class SandboxSessionManagerTest {
         this.capability = executable::probe;
         final SessionServices services = new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            new io.github.lukashornych.hole.idea.hole.InstanceIdGenerator()::generate, Clock.systemUTC(), this.background, PasteDirectory.disabled()
+            new io.github.lukashornych.hole.idea.hole.InstanceIdGenerator()::generate, Clock.systemUTC(), this::executeInBackground,
+            PasteDirectory.disabled()
         );
         this.manager = new SandboxSessionManager(
-            this.project, () -> this.capability.get(), this.shellEnvironment::read, services, this.ui, this.notifier
+            this.project, () -> this.capability.get(), () -> {
+                this.beforeEnvironmentRead.accept(this.environmentReads.incrementAndGet());
+                return this.shellEnvironment.read();
+            }, services, this.ui, this.notifier
         );
         this.view = new RecordingView(this.manager);
         onUi(() -> {
@@ -367,13 +379,41 @@ class SandboxSessionManagerTest {
 
     @Test
     void restartOfANotRunningSessionDoesNotProbe() throws Exception {
-        this.hole.environment().put("FAKE_HOLE_START_EXIT", "1");
+        this.hole.environment().put("FAKE_HOLE_RUNNING_AFTER", "30");
         final SandboxSession session = startAndWait(SandboxConfig.defaults(), "aaaaaa");
-        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+        assertEquals(SessionState.STARTING, session.snapshot().state());
         this.capability = () -> {
             throw new AssertionError("no probe for a refused restart");
         };
         assertFalse(this.manager.restart(session, null).get(20, TimeUnit.SECONDS));
+        assertTrue(this.notifier.events.isEmpty(), this.notifier.events.toString());
+        assertEquals(1, this.shell.calls().size(), "no shell environment read: " + this.shell.calls());
+    }
+
+    @Test
+    void restartOfAnExitedSessionReadsTheEnvironmentAgainAndStartsInTheSameTab() throws Exception {
+        this.hole.environment().put("FAKE_HOLE_START_EXIT", "1");
+        final SandboxSession session = startAndWait(SandboxConfig.defaults(), "aaaaaa");
+        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+        // the user fixed the cause (e.g. in the shell profile): the next read no longer carries it
+        this.hole.environment().remove("FAKE_HOLE_START_EXIT");
+        final List<Thread> probes = new CopyOnWriteArrayList<>();
+        final Supplier<HoleCapability> real = this.capability;
+        this.capability = () -> {
+            probes.add(Thread.currentThread());
+            return real.get();
+        };
+
+        assertTrue(this.manager.restart(session, null).get(20, TimeUnit.SECONDS));
+        assertEquals(2, this.shell.calls().size(), "the shell environment is read again: " + this.shell.calls());
+        assertEquals(1, probes.size(), "Hole is probed again");
+        waitUntil(() -> this.view.ops.contains("restart " + id(session)), () -> "terminal reconnected: " + this.view.ops);
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "new sandbox runs");
+        assertNotEquals("aaaaaa", session.snapshot().instanceId(), "a new instance ID");
+        assertNull(session.snapshot().exitCode());
+        assertEquals(2, this.hole.calls().stream().filter(call -> call.startsWith("start ")).count());
+        assertEquals(List.of(session), this.manager.sessions(), "same tab");
+        assertFalse(this.view.removed.contains(session));
         assertTrue(this.notifier.events.isEmpty(), this.notifier.events.toString());
     }
 
@@ -391,6 +431,37 @@ class SandboxSessionManagerTest {
         assertFalse(this.notifier.events.get(0).contains("s3cr3t"), "no command line in the message");
         onUi(() -> null);
         assertFalse(this.view.removed.contains(session), "the tab stays with the old output");
+    }
+
+    @Test
+    void staleRestartOfAnExitedSessionDoesNotStopItAfterAnotherRestartBroughtItBack() throws Exception {
+        this.hole.environment().put("FAKE_HOLE_START_EXIT", "1");
+        final SandboxSession session = startAndWait(SandboxConfig.defaults(), "aaaaaa");
+        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+        this.hole.environment().remove("FAKE_HOLE_START_EXIT");
+        // a double click on Restart of the exited sandbox: both clicks happen before the first relaunch
+        final CountDownLatch secondClicked = new CountDownLatch(1);
+        this.beforeEnvironmentRead = read -> {
+            if (read == 2) {
+                await(secondClicked);
+            }
+        };
+
+        final CompletableFuture<Boolean> first = this.manager.restart(session, null);
+        // the task of the second click starts only once the first relaunch runs
+        final CountDownLatch secondTask = new CountDownLatch(1);
+        this.holdNextTask.set(secondTask);
+        final CompletableFuture<Boolean> second = this.manager.restart(session, null);
+        secondClicked.countDown();
+        assertTrue(first.get(20, TimeUnit.SECONDS));
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "the first restart runs");
+        secondTask.countDown();
+
+        assertFalse(second.get(20, TimeUnit.SECONDS), "the stale click is refused");
+        assertEquals(SessionState.RUNNING, session.snapshot().state(), "no unconfirmed stop of the running sandbox");
+        assertFalse(session.snapshot().restartPending());
+        assertTrue(session.process().isAlive());
+        assertEquals(2, this.hole.calls().stream().filter(call -> call.startsWith("start ")).count(), this.hole.calls().toString());
     }
 
     @Test
@@ -492,6 +563,23 @@ class SandboxSessionManagerTest {
         base.put("SHLVL", "2");
         base.putAll(this.shell.environment());
         return base;
+    }
+
+    private void executeInBackground(@NotNull Runnable task) {
+        final CountDownLatch hold = this.holdNextTask.getAndSet(null);
+        this.background.execute(hold == null ? task : () -> {
+            await(hold);
+            task.run();
+        });
+    }
+
+    private static void await(@NotNull CountDownLatch latch) {
+        try {
+            assertTrue(latch.await(20, TimeUnit.SECONDS), "latch released");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
     }
 
     @NotNull

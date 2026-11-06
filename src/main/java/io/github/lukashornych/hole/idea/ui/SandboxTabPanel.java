@@ -55,8 +55,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>The header is re-rendered only when its {@link HeaderModel} changed; the 1 s timer (stopping / restarting timer,
  * Force Stop after 30 s) does nothing once the sandbox is no longer alive.</p>
  *
- * <p>Restart and the Docker toggle ask for a confirmation (the agent session ends) and then let the manager restart
- * the sandbox in this tab; the terminal is replaced on {@link #reconnect()}.</p>
+ * <p>Restart and the Docker toggle ask for a confirmation (the agent session ends; not for an exited sandbox) and then
+ * let the manager restart the sandbox in this tab; the terminal is replaced on {@link #reconnect()}.</p>
  */
 final class SandboxTabPanel extends HoleToolWindowView.Tab {
 
@@ -198,10 +198,16 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
     }
 
     /**
-     * Restart from the header toolbar: same configuration, after a confirmation.
+     * Restart from the header toolbar: same configuration. A running sandbox asks
+     * for a confirmation first; an exited one has no agent session to lose.
      */
     private void restart() {
-        if (this.session.snapshot().state() != SessionState.RUNNING) {
+        final SessionState state = this.session.snapshot().state();
+        if (state == SessionState.EXITED) {
+            this.manager.restart(this.session, null);
+            return;
+        }
+        if (state != SessionState.RUNNING) {
             return;
         }
         final SandboxSession.Launch launch = this.session.launch();

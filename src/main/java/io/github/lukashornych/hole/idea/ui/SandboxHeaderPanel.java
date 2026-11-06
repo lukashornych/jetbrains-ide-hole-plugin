@@ -39,7 +39,8 @@ import java.util.function.Consumer;
  * links (dimmed when the sandbox does not use that file) and project path; the
  * stopping (or restarting) timer with Force Stop; or "Exited with code N" with Close. Fields Hole reports are skeleton
  * placeholders until the first metadata arrives. The network is deliberately not shown. While the sandbox runs, the
- * Docker pill toggles Docker-in-Docker through a restart, and the toolbar at the right end offers Restart.
+ * Docker pill toggles Docker-in-Docker through a restart; the toolbar at the right end offers Restart while the sandbox
+ * runs or has exited.
  */
 final class SandboxHeaderPanel extends JPanel {
 
@@ -73,7 +74,7 @@ final class SandboxHeaderPanel extends JPanel {
      * @param onForceStop    called when Force Stop is pressed
      * @param onClose        called when Close is pressed
      * @param onToggleDocker called when the Docker pill of a running sandbox is clicked
-     * @param onRestart      called when Restart is pressed (only enabled while the sandbox runs)
+     * @param onRestart      called when Restart is pressed (only enabled while the sandbox runs or has exited)
      * @param onSettings     called with the scope when the Global or Project settings link is clicked
      * @param onNetwork      called when Network is pressed (only enabled while the sandbox runs)
      */
@@ -216,7 +217,8 @@ final class SandboxHeaderPanel extends JPanel {
     }
 
     /**
-     * Restart in the header toolbar: enabled only while the sandbox runs. The confirmation is the caller's job.
+     * Restart in the header toolbar: enabled only while the sandbox runs or has exited. The confirmation is the caller's
+     * job.
      */
     private final class RestartAction extends DumbAwareAction {
         private final Runnable onRestart;

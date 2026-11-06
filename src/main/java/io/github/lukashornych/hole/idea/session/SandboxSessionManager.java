@@ -178,14 +178,16 @@ public final class SandboxSessionManager implements Disposable {
 
     /**
      * Restarts a RUNNING sandbox in its tab (see {@link SandboxSession#restart(SandboxSession.Launch)}), e.g. to apply
-     * changed settings files or another config. The shell environment is read and Hole is probed again first, so the
-     * restart uses the current executable and environment; when either fails now, the user is told and the running
-     * sandbox is left alone. Does nothing unless the session is RUNNING.
+     * changed settings files or another config, or starts an EXITED one again (see
+     * {@link SandboxSession#relaunch(SandboxSession.Launch)}). The shell environment is read and Hole is probed again
+     * first, so the restart uses the current executable and environment; when either fails now, the user is told and
+     * the sandbox is left alone. Does nothing unless the session is RUNNING or EXITED.
      *
      * @param session   the session to restart
      * @param newConfig the config of the new sandbox, or {@code null} to keep the current one
-     * @return completes with {@code true} once the old process got SIGINT, or with {@code false} when nothing was
-     * restarted (the user was notified when Hole could not be used)
+     * @return completes with {@code true} once the old process got SIGINT (RUNNING) or the new process was spawned or
+     * its failure reported (EXITED), or with {@code false} when nothing was restarted (the user was notified when Hole
+     * could not be used)
      */
     @NotNull
     public CompletableFuture<Boolean> restart(@NotNull SandboxSession session, @Nullable SandboxConfig newConfig) {
@@ -194,9 +196,11 @@ public final class SandboxSessionManager implements Disposable {
             result.complete(false);
             return result;
         }
+        // the state the user acted on, taken at the click: the background task may start much later
+        final SessionState clicked = session.snapshot().state();
         this.services.background().execute(() -> {
             try {
-                result.complete(restartInBackground(session, newConfig));
+                result.complete(restartInBackground(session, newConfig, clicked));
             } catch (RuntimeException e) {
                 LOG.warn("Restarting a sandbox failed unexpectedly (instance " + session.snapshot().instanceId() + ")", e);
                 this.notifier.spawnFailed(Objects.requireNonNullElse(e.getMessage(), e.getClass().getSimpleName()));
@@ -322,8 +326,14 @@ public final class SandboxSessionManager implements Disposable {
         return session;
     }
 
-    private boolean restartInBackground(@NotNull SandboxSession session, @Nullable SandboxConfig newConfig) {
-        if (this.disposing || session.snapshot().state() != SessionState.RUNNING) {
+    /**
+     * @param clicked the state when the user asked for the restart; an EXITED one (no confirmation was asked) only
+     *                relaunches, so a stale click never stops a sandbox that another restart brought back to RUNNING
+     */
+    private boolean restartInBackground(
+        @NotNull SandboxSession session, @Nullable SandboxConfig newConfig, @NotNull SessionState clicked
+    ) {
+        if (this.disposing || !restartable(clicked) || session.snapshot().state() != clicked) {
             return false;
         }
         final Map<String, String> env = readEnvironment(() -> restart(session, newConfig));
@@ -337,7 +347,13 @@ public final class SandboxSessionManager implements Disposable {
         }
         final SandboxSession.Launch current = session.launch();
         final SandboxConfig config = newConfig != null ? newConfig : current.config();
-        return session.restart(launch(config, current.debug(), hole.executable(), env));
+        final SandboxSession.Launch next = launch(config, current.debug(), hole.executable(), env);
+        // each call refuses any state other than its own
+        return clicked == SessionState.EXITED ? session.relaunch(next) : session.restart(next);
+    }
+
+    private static boolean restartable(@NotNull SessionState state) {
+        return state == SessionState.RUNNING || state == SessionState.EXITED;
     }
 
     /**
