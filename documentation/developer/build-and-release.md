@@ -14,7 +14,7 @@ start a whole IDE during the build.
 `plugin.xml` declares `sinceBuild = 252` and no `untilBuild`, so the plugin stays installable in new IDE releases.
 Compatibility with them is checked by `./gradlew verifyPlugin`, which runs the Plugin Verifier against the IDEs
 JetBrains recommends for the declared range; it must report *Compatible* with no deprecated or internal API
-usages. It downloads several GB, so it is not part of CI — run it before a release and after platform API changes.
+usages other than the known split opt-in ([guidelines](guidelines.md#platform-api)). It downloads several GB, so it is not part of CI — run it before a release and after platform API changes.
 
 ## CI workflows
 

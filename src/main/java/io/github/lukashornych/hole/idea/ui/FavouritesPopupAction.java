@@ -35,6 +35,7 @@ final class FavouritesPopupAction extends DumbAwareAction {
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
+        HoleToolWindowView.rememberClickedPane(e);
         final Project project = e.getProject();
         if (project == null) {
             return;

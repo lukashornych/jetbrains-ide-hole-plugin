@@ -140,6 +140,47 @@ to the pty and consumes it: otherwise the platform's internal `TerminalEscapeKey
 pre-key handlers, moves the focus to the editor in every tool window but Terminal while the program draws in the main
 screen buffer (as Claude Code does).
 
+### Tool window and panes
+
+`HoleToolWindowView` is the `SessionView` of the tool window: one `Content` per session, closing vetoed in
+`contentRemoveQuery` and turned into a stop request. The factory opts in to the platform's tab drag and drop and
+split (`HoleToolWindowFactory.allowTabSplitting`, see below), so the
+window may hold **several content managers**: a split creates a nested `ContentManager` per pane, moves the tabs
+into them, and the root manager (`toolWindow.getContentManager()`) keeps no content of its own — it only delegates
+`addContent` and `setSelectedContent`, rejects `removeContent` of a tab in a pane, and fires events only for its own
+contents. Consequences:
+
+- **One listener per tab** (`SandboxContentListener`), not one on the root: it joins whatever manager its content is
+  in and follows it through the content's `"contentManager"` property change (the pattern of the platform's
+  `BaseContentCloseListener`; there is no public API to enumerate panes or hear about new ones).
+- **Moves are not closes.** Split, unsplit and drag move a tab by `removeContent` on the source and `addContent` on
+  the target with `Content.TEMPORARY_REMOVED_KEY` set; the listener ignores the remove query, the removal and the
+  selection while it is set. A move also makes the source pane select a neighbour, so selections are not reported
+  to `SandboxSessionManager` (`TabHistory`) while any tab is between two managers.
+- **Every call goes to the tab's own manager** (`content.getManager()`). While the user drags a tab it belongs to no
+  manager (and from drag start, which marks it moving at once but removes it from its manager only in a later event,
+  it must not be removed either): `select` is skipped, and `remove` is remembered and done after the drop (`invokeLater`, because the drop
+  still marks the content as moving).
+- **Selection stays global.** `TabHistory` spans all panes; `select` reports the selection itself when the tab is
+  already the selected one of its pane (no event fires then), and `remove` keeps the selection the manager chose
+  when the pane selects a neighbour of the removed tab, or an unsplit after the pane's last tab selects the first
+  tab moved back (re-selected without focus).
+- **Placement of a new tab.** The tab action's data context names neither the pane's content manager nor its tab
+  label (the action toolbar's target is the pane's header, a sibling of the content component that provides them),
+  so `+` calls `HoleToolWindowView.rememberClickedPane` first: it walks up the Swing hierarchy from the
+  clicked button to the nearest ancestor that holds a sandbox tab (the pane's cell), no further than the ancestor
+  that holds the root content component, skipped when the window has no tab, and remembers that tab's manager (weakly, in the
+  project's user data, used by the next new tab, checked for disposal because an unsplit disposes pane managers).
+  Fallbacks: the pane of the selected session, then the root manager.
+
+**Opt-in per IDE version.** 2025.2 knows only the `ToolWindowContentUi.ALLOW_DND_FOR_TABS` client property (as the
+Run tool window used it); 2025.3 deprecates it; from 2026.1 splitting is enabled only by
+`ToolWindow.setTabsSplittingAllowed(true)`, which is `@ApiStatus.Experimental` and absent in 2025.2. The factory does
+both, the second reflectively, in one method marked `@ApiStatus.Experimental` — the project's only deliberate use of
+a deprecated and an experimental API ([guidelines](guidelines.md#platform-api)). `verifyPlugin` reports the
+deprecated key on 2025.3+. The reasoning is recorded in
+[the ADR](../adr/2026-11-05-tool-window-panes-use-the-platform-split.md).
+
 ## Metadata polling
 
 `MetadataPoller` is **one loop for all sessions of all projects**: each round runs one unfiltered

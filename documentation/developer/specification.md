@@ -38,6 +38,26 @@ it with:
   **Shift+click** (or Shift+Enter) starts it in debug shell mode; the popup shows this hint,
 - *Edit Favourites…* (below a separator when there are favourites).
 
+**Panes.** The tool window can be split into panes that show sandbox tabs side by side, using the IDE's own tool
+window split: *Split Right* / *Split Down* / *Unsplit* in the tab context menu (*Split* only for a pane with more than
+one tab), or dragging a tab to an edge of the window or between the tabs of another pane. Panes can be nested. A pane
+holds whole, already running sandboxes; moving a tab does not touch its sandbox (no stop, no restart, the terminal
+keeps its session). Every pane has its own `+`. Everything in this document applies to a tab in any pane:
+closing it stops the sandbox, an exited tab stays with *Exited with code N*, restart, the Docker pill and the Network
+window work as in an unsplit window. A pane whose last tab closes disappears (the IDE unsplits it). A sandbox that ends while its tab is being dragged closes
+its tab once the tab is dropped. The split is not
+kept after an IDE restart (sandboxes are not either). In IntelliJ 2025.2 and 2025.3 the IDE registry key
+`ide.allow.split.and.reorder.in.tool.window` turns the split and tab drag and drop off for all tool windows.
+
+**Where a new sandbox opens:** in the pane whose `+` was clicked (also when the start goes through the
+New Sandbox dialog, a favourite or the worktree popup opened from it); otherwise in the pane of the most recently
+selected sandbox tab; otherwise in the first (left or top) pane. "Selected" means selecting a tab: clicking into the
+terminal of a pane whose tab is already selected does not count.
+
+**Selection after a close** is across panes: when a tab closes, the previously selected sandbox tab is selected again,
+in whichever pane it is, and the pane that lost the tab shows its neighbour. Moving tabs between panes does not change
+which tab counts as previously selected.
+
 When no sandbox is running, the tool window shows an empty state: *No sandboxes are running*, a *New Sandbox…* link,
 the grey hint *Shift+click starts in Debug Shell* and the favourites grouped into *This project* and *All projects*
 (grey headers), each with its agent in grey (`claude`). Clicking a favourite starts it in agent mode (see
