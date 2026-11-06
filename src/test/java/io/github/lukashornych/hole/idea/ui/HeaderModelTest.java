@@ -39,12 +39,25 @@ class HeaderModelTest {
         assertFalse(model.pending());
         assertTrue(model.metadata());
         assertTrue(model.docker());
+        assertFalse(model.unrestricted(), "restricted network unless Hole reports the unrestricted flag");
         assertEquals("global(~/.hole/settings.json)+project", model.settingsTooltip());
         assertTrue(model.globalUsed());
         assertTrue(model.projectUsed());
         assertEquals("acme-cms (main)", model.project(), "the main repository shows only its folder name");
         assertEquals("/work/acme-cms", model.projectPath());
         assertFalse(model.debug());
+    }
+
+    @Test
+    void unrestrictedNetworkComesFromTheStartFlags() {
+        final InstanceInfo info = HoleListParser.parse("""
+            [{"instanceId": "r8tq2c", "status": "running", "projectPath": "/work/acme-cms", "flags": {"unrestricted": true}}]
+            """).get(0);
+        final HeaderModel model = HeaderModel.of(snapshot(SessionState.RUNNING, info, null, null), false, HeaderModel.Checkout.NONE, NOW);
+        assertTrue(model.unrestricted());
+        assertTrue(model.networkToggle());
+        assertFalse(HeaderModel.of(snapshot(SessionState.STARTING, null, null, null), false, HeaderModel.Checkout.NONE, NOW).unrestricted(),
+            "unknown until Hole reports: the pill is a skeleton");
     }
 
     @Test
@@ -103,24 +116,51 @@ class HeaderModelTest {
     }
 
     @Test
-    void restartAndDockerToggleOnlyWhileRunning() {
+    void restartWhileRunningOrExitedAndPillTogglesOnlyWhileRunning() {
         final HeaderModel running = HeaderModel.of(snapshot(SessionState.RUNNING, INFO, null, null), false, HeaderModel.Checkout.NONE, NOW);
         assertTrue(running.restart());
         assertTrue(running.dockerToggle());
+        assertTrue(running.networkToggle());
         assertTrue(running.network());
+        assertTrue(running.libraries());
+        final HeaderModel exited = HeaderModel.of(snapshot(SessionState.EXITED, INFO, 1, null), false, HeaderModel.Checkout.NONE, NOW);
+        assertTrue(exited.restart(), "the toolbar Restart starts an exited sandbox again");
+        assertFalse(exited.dockerToggle(), "the Docker pill stays a plain label");
+        assertFalse(exited.networkToggle(), "the Network pill stays a plain label");
+        assertFalse(exited.network());
+        assertFalse(exited.libraries());
         for (SandboxSession.Snapshot other : java.util.List.of(
             snapshot(SessionState.STARTING, null, null, null),
             snapshot(SessionState.STARTING, INFO, null, null),
             snapshot(SessionState.STOPPING, INFO, null, NOW),
             restarting(NOW),
-            snapshot(SessionState.EXITED, INFO, 1, null),
             snapshot(SessionState.CLOSED, INFO, 0, null)
         )) {
             final HeaderModel model = HeaderModel.of(other, false, HeaderModel.Checkout.NONE, NOW);
             assertFalse(model.restart(), other.toString());
             assertFalse(model.dockerToggle(), other.toString());
+            assertFalse(model.networkToggle(), other.toString());
             assertFalse(model.network(), other.toString());
+            assertFalse(model.libraries(), other.toString());
         }
+    }
+
+    @Test
+    void relaunchOfAnExitedSandboxShowsRestartingWithoutExitCode() {
+        // while the new process is spawned the session is STOPPING with a pending restart; the old exit code is kept
+        final SandboxSession.Snapshot relaunching = new SandboxSession.Snapshot(
+            SessionState.STOPPING, "r8tq2c", INFO, 1, NOW, "", false, true
+        );
+        final HeaderModel model = HeaderModel.of(relaunching, false, HeaderModel.Checkout.NONE, NOW);
+        assertEquals("Restarting for 0 s", model.stopping());
+        assertNull(model.exited());
+        assertFalse(model.restart(), "no second restart while one is pending");
+        assertFalse(model.forceStop());
+        final HeaderModel late = HeaderModel.of(relaunching, false, HeaderModel.Checkout.NONE, NOW.plusSeconds(31));
+        assertEquals("Restarting for 31 s", late.stopping());
+        assertFalse(late.forceStop(), "no process to kill while the new one is spawned");
+        final HeaderModel restart = HeaderModel.of(restarting(NOW), false, HeaderModel.Checkout.NONE, NOW.plusSeconds(31));
+        assertTrue(restart.forceStop(), "a restart of a running sandbox still offers it");
     }
 
     @Test

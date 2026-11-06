@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * Items of the favourites dropdown. The modifiers of the choosing event decide the mode: with Shift the favourite
+ * Items of the favourites popup. The modifiers of the choosing event decide the mode: with Shift the favourite
  * starts in Debug Shell.
  */
 final class FavouritesPopupStep extends BaseListPopupStep<FavouritesPopupStep.Item> implements ListPopupStepEx<FavouritesPopupStep.Item> {
@@ -31,7 +31,7 @@ final class FavouritesPopupStep extends BaseListPopupStep<FavouritesPopupStep.It
     private final Consumer<ListPopup> placement;
 
     /**
-     * @param placement shows the popup that asks for a git worktree, like the dropdown itself
+     * @param placement shows the popup that asks for a git worktree, like the favourites popup itself
      */
     FavouritesPopupStep(
         @NotNull Project project, @NotNull List<Favourite> favourites, @Nullable HoleCapability capability,
@@ -46,9 +46,9 @@ final class FavouritesPopupStep extends BaseListPopupStep<FavouritesPopupStep.It
     @NotNull
     static List<Item> items(@NotNull List<Favourite> favourites) {
         final List<Item> items = new ArrayList<>();
+        items.add(new CommandItem(Command.NEW_SANDBOX));
         favourites.stream().filter(f -> f.scope() == FavouriteScope.PROJECT).forEach(f -> items.add(new FavouriteItem(f)));
         favourites.stream().filter(f -> f.scope() == FavouriteScope.GLOBAL).forEach(f -> items.add(new FavouriteItem(f)));
-        items.add(new CommandItem(Command.NEW_SANDBOX));
         items.add(new CommandItem(Command.EDIT_FAVOURITES));
         return List.copyOf(items);
     }
@@ -75,7 +75,18 @@ final class FavouritesPopupStep extends BaseListPopupStep<FavouritesPopupStep.It
 
     @Override
     public @Nullable ListSeparator getSeparatorAbove(Item value) {
-        final List<Item> values = getValues();
+        return separatorAbove(getValues(), value);
+    }
+
+    /**
+     * A labelled separator starts each favourites group; a plain one separates <i>Edit Favourites…</i> from the
+     * favourites above it.
+     *
+     * @param values all items, as {@link #items} orders them
+     * @param value  the item the separator would be drawn above
+     */
+    @Nullable
+    static ListSeparator separatorAbove(@NotNull List<Item> values, @NotNull Item value) {
         final int index = values.indexOf(value);
         final Item previous = index > 0 ? values.get(index - 1) : null;
         if (value instanceof FavouriteItem favourite) {
@@ -139,7 +150,7 @@ final class FavouritesPopupStep extends BaseListPopupStep<FavouritesPopupStep.It
     }
 
     /**
-     * One row of the dropdown.
+     * One row of the popup.
      */
     sealed interface Item permits FavouriteItem, CommandItem {
     }

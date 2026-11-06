@@ -13,6 +13,14 @@ All packages below are under `io.github.lukashornych.hole.idea`.
   `hole start` or `hole list`. Everything it knows comes from Hole's machine-readable CLI contract: `hole version`,
   `hole list --json`, `hole settings get|create` and `hole modify … --json`, all introduced or stabilised in
   **Hole 2.6.0**, the minimum supported version.
+- **Day-to-day settings may be edited in the GUI; the files stay Hole's.** Hole has no CLI that writes a settings
+  file, so the plugin reads and writes the content itself for a few curated, top-level, day-to-day settings, each with
+  a narrow editor of its own: the Network window's saved entries (`network.allow` / `network.hostGatewayDomains`,
+  `hole.SettingsEntries`) and the Libraries window (`libraries`, `hole.SettingsLibraries`). Hole still names the
+  files (`hole settings get|create`), only that one key is changed, unknown keys and the rest of the document are kept,
+  `profiles` is never touched, and the edit goes through the file's IDE document (`ui.settings.SettingsDocuments`). There is
+  no generic settings-content editor — see [the network ADR](../adr/2026-11-05-network-entries-saved-to-settings-by-the-plugin.md)
+  and [the libraries ADR](../adr/2026-11-05-day-to-day-settings-editable-in-the-gui.md).
 - **No intermediate shell.** Every process — `hole start` included — is started from an argument list, never from a
   shell string. `hole start` runs directly as the process of the tab's pty, so its exit is the signal that the
   sandbox is gone. The only shell the plugin starts is the environment reader below, and its output never reaches a
@@ -47,7 +55,9 @@ All packages below are under `io.github.lukashornych.hole.idea`.
 | `session` | The lifecycle of one sandbox (`SandboxSession`) and of all sandboxes of a project (`SandboxSessionManager`); the pty (`HoleTerminalRunner`, `HoleTtyConnector`); process-group signals (`ProcessSignaller`); image paste folders (`PasteDirectory`, `PasteStore`). |
 | `storage` | `PersistentStateComponent` services: plugin settings and favourites of both scopes. Null handling of persisted state lives here. |
 | `ui` | Tool window, sandbox tabs and their header, New Sandbox / Edit Favourites dialogs with the shared `SandboxForm`, favourite starts (`FavouriteStarter`: project root or a git worktree from `StartLocations`), settings page, notifications, terminal path links and image paste key handling. |
-| `ui/network` | The runtime Network window over `hole modify`. |
+| `ui/settings` | `SettingsDocuments` reads and changes a sandbox's settings files through their IDE documents (`hole settings get\|create` names them) for the Network and Libraries windows; a leaf package, so `ui`, `ui/network` and `ui/library` depend on it without a cycle. |
+| `ui/network` | The runtime Network window over `hole modify`; `SettingsEntrySaver` reads and changes its entries in the settings files (`hole.SettingsEntries` edits the JSON). |
+| `ui/library` | The Libraries window: `LibraryFiles` reads both settings files as Hole merges them and adds, changes or removes a library (`hole.SettingsLibraries` edits the JSON); `LibraryTableModel` builds the rows (sources, *restart to apply* marks against the per-instance snapshot the tab keeps, duplicate warnings). |
 | `model`, `git` | Immutable value records (`SandboxConfig`, `Favourite`, `InstanceInfo`, …) and `git worktree list --porcelain` parsing, incl. whether a directory lies in a linked worktree (shown in the sandbox header). |
 
 Dependencies point downwards: `ui` → `session` → `hole` → `process`; `model` is used everywhere and depends on
@@ -81,6 +91,9 @@ STARTING|RUNNING --(Hole reports stopping, or the plugin sends SIGINT)--> STOPPI
 process exit: stop requested by the plugin, or exit code 0 --> CLOSED  (the tab is removed)
               otherwise                                     --> EXITED  (the tab stays: "Exited with code N")
 EXITED --(Close)--> CLOSED
+RUNNING --(restart: SIGINT)--> STOPPING --(process exit, new process)--> STARTING  (same tab, new instance ID)
+EXITED  --(restart)--> STOPPING ("Restarting", while spawning) --> STARTING        (same tab, new instance ID)
+                       spawn failure --> EXITED (old exit code); close request --> CLOSED
 ```
 
 Whether a tab closes depends only on *who asked for the stop* and on the exit code — never on Hole's `stopping`
@@ -91,7 +104,11 @@ status, which can be missed between two polls.
   session starts once more with a new ID in the same tab. `HoleTtyConnector` sees what the terminal reads only to
   recognise that one error.
 - **Restart** replaces a running sandbox in the same tab: SIGINT like a close, and when the process has exited a new
-  `hole start` with a new instance ID and a fresh probe. The terminal widget is replaced.
+  `hole start` with a new instance ID and a fresh probe. The terminal widget is replaced. An EXITED sandbox is
+  restarted by `SandboxSession.relaunch`: it switches to STOPPING with a pending restart **under the same lock that
+  checks EXITED**, then runs the second half of a restart (`restartExited`). Leaving it EXITED during the spawn would
+  break two things: a Close in EXITED goes straight to CLOSED without `closeRequested`, so the spawned process would
+  revive a closed tab; and a second Restart would spawn a second `hole start` and orphan one of them.
 - **Thread safety.** `SandboxSession` is thread-safe; its listeners are called on whichever thread caused the change
   (process reaper, poller, terminal emulator) and must switch to the EDT themselves.
 
@@ -130,6 +147,47 @@ the clipboard into a PNG in the sandbox's paste folder plus a bracketed paste of
 to the pty and consumes it: otherwise the platform's internal `TerminalEscapeKeyListener`, which runs after the
 pre-key handlers, moves the focus to the editor in every tool window but Terminal while the program draws in the main
 screen buffer (as Claude Code does).
+
+### Tool window and panes
+
+`HoleToolWindowView` is the `SessionView` of the tool window: one `Content` per session, closing vetoed in
+`contentRemoveQuery` and turned into a stop request. The factory opts in to the platform's tab drag and drop and
+split (`HoleToolWindowFactory.allowTabSplitting`, see below), so the
+window may hold **several content managers**: a split creates a nested `ContentManager` per pane, moves the tabs
+into them, and the root manager (`toolWindow.getContentManager()`) keeps no content of its own — it only delegates
+`addContent` and `setSelectedContent`, rejects `removeContent` of a tab in a pane, and fires events only for its own
+contents. Consequences:
+
+- **One listener per tab** (`SandboxContentListener`), not one on the root: it joins whatever manager its content is
+  in and follows it through the content's `"contentManager"` property change (the pattern of the platform's
+  `BaseContentCloseListener`; there is no public API to enumerate panes or hear about new ones).
+- **Moves are not closes.** Split, unsplit and drag move a tab by `removeContent` on the source and `addContent` on
+  the target with `Content.TEMPORARY_REMOVED_KEY` set; the listener ignores the remove query, the removal and the
+  selection while it is set. A move also makes the source pane select a neighbour, so selections are not reported
+  to `SandboxSessionManager` (`TabHistory`) while any tab is between two managers.
+- **Every call goes to the tab's own manager** (`content.getManager()`). While the user drags a tab it belongs to no
+  manager (and from drag start, which marks it moving at once but removes it from its manager only in a later event,
+  it must not be removed either): `select` is skipped, and `remove` is remembered and done after the drop (`invokeLater`, because the drop
+  still marks the content as moving).
+- **Selection stays global.** `TabHistory` spans all panes; `select` reports the selection itself when the tab is
+  already the selected one of its pane (no event fires then), and `remove` keeps the selection the manager chose
+  when the pane selects a neighbour of the removed tab, or an unsplit after the pane's last tab selects the first
+  tab moved back (re-selected without focus).
+- **Placement of a new tab.** The tab action's data context names neither the pane's content manager nor its tab
+  label (the action toolbar's target is the pane's header, a sibling of the content component that provides them),
+  so `+` calls `HoleToolWindowView.rememberClickedPane` first: it walks up the Swing hierarchy from the
+  clicked button to the nearest ancestor that holds a sandbox tab (the pane's cell), no further than the ancestor
+  that holds the root content component, skipped when the window has no tab, and remembers that tab's manager (weakly, in the
+  project's user data, used by the next new tab, checked for disposal because an unsplit disposes pane managers).
+  Fallbacks: the pane of the selected session, then the root manager.
+
+**Opt-in per IDE version.** 2025.2 knows only the `ToolWindowContentUi.ALLOW_DND_FOR_TABS` client property (as the
+Run tool window used it); 2025.3 deprecates it; from 2026.1 splitting is enabled only by
+`ToolWindow.setTabsSplittingAllowed(true)`, which is `@ApiStatus.Experimental` and absent in 2025.2. The factory does
+both, the second reflectively, in one method marked `@ApiStatus.Experimental` — the project's only deliberate use of
+a deprecated and an experimental API ([guidelines](guidelines.md#platform-api)). `verifyPlugin` reports the
+deprecated key on 2025.3+. The reasoning is recorded in
+[the ADR](../adr/2026-11-05-tool-window-panes-use-the-platform-split.md).
 
 ## Metadata polling
 
@@ -181,6 +239,9 @@ The UI is split into a Swing-free model and a thin Swing part, so the logic is t
 | `StartLocations` | `FavouriteStarter` |
 | `SettingsFileResolver` (question as a callback) | `SettingsFileOpener`, `SettingsFileLinks` |
 | `BlockedSuggestions` | `NetworkDialog`, `EntryInputDialog` |
+| `SettingsEntries` (settings JSON edit) | `SettingsEntrySaver` (IDE document) |
+| `SettingsLibraries` (settings JSON edit, Hole's merge per literal key) | `LibraryFiles`, `ui/settings/SettingsDocuments` (IDE document) |
+| `LibraryTableModel` rows, `LibrariesDialog.removeQuestion` / `hint` | `LibrariesDialog`, `LibraryInputDialog` |
 
 `SessionServices` bundles what a session needs from outside (pty runner, signaller, metadata source, ID generator,
 clock), so tests pass the real implementations running against the fake `hole` script. See

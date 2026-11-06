@@ -30,14 +30,20 @@ network policy. This plugin gives Hole a home in the IDE:
   working on,
 - a **New Sandbox** dialog with every `hole start` option and a live command preview,
 - **favourites** — saved sandbox configurations for this project or all projects, one click to start,
-- a **sandbox header** with the instance, Docker-in-Docker, the settings files in use, *Restart* and *Network…*,
-- a **Network** window to allow blocked domains while the sandbox runs (`hole modify` with a GUI),
+- a **sandbox header** with the project, the instance, the settings files in use, the network mode (restricted or
+  unrestricted) and Docker-in-Docker — click either pill to restart the sandbox with it toggled — plus *Restart* (also
+  of a sandbox whose start failed), *Network…* and *Libraries…*,
+- a **Network** window to allow blocked domains while the sandbox runs (`hole modify` with a GUI), optionally saving
+  them to the global or project settings file as well (and removing them from there again),
+- a **Libraries** window to add, change or remove the libraries (extra mounted directories) of the global or project
+  settings file, with a restart offer to apply them,
 - **image paste** — paste a screenshot into the agent with `Cmd+V` / `Ctrl+V`, although the sandbox cannot read
   your clipboard,
 - clickable file paths in the agent's output, and clean stopping of sandboxes when a tab or the IDE closes.
 
 The plugin does not replace Hole or change how it isolates the agent: it runs `hole` exactly as you would, and
-Hole's settings files remain the place to configure sandboxes.
+Hole's settings files remain the place to configure sandboxes — only a few day-to-day settings (allowed domains,
+libraries) can also be changed from the IDE, and those edits keep everything else in the file as it is.
 
 ## Requirements
 
@@ -60,15 +66,19 @@ The plugin finds `hole` on the `PATH` of your shell or in `~/.local/bin`. If it 
 
 ## Usage
 
-Open the **Hole** tool window at the bottom of the IDE and click *New Sandbox…* (or `+` in the tab strip). Pick the
-agent, an optional profile and the project path — `.` is the IDE project, and git worktrees of the project are
-offered in the dropdown — tick the sandbox options you need and press *Start*. *Start in Debug Shell* opens a shell
-in the sandbox instead of the agent.
+Open the **Hole** tool window at the bottom of the IDE and click *New Sandbox…* (or `+` in the tab strip, then
+*New Sandbox…*). Pick the agent, an optional profile and the project path — `.` is the IDE project, and git worktrees
+of the project are offered in the dropdown — tick the sandbox options you need and press *Start*. *Start in Debug
+Shell* opens a shell in the sandbox instead of the agent.
 
-*Save as Favourite…* stores the configuration; favourites appear on the tool window's start page and in the dropdown
-next to `+` (Shift+click starts one in Debug Shell). A favourite does not store the project path: it starts in the
-IDE project, or — when the project has git worktrees — in the project or a worktree you pick from a short list.
-Project favourites are stored in `.idea/hole.xml`, so they can be shared through version control.
+*Save as Favourite…* stores the configuration; favourites appear on the tool window's start page and in the popup
+of `+` (Shift+click starts one in Debug Shell, in both places). A favourite does not store the project path: it
+starts in the IDE project, or — when the project has git worktrees — in the project or a worktree you pick from a
+short list. Project favourites are stored in `.idea/hole.xml`, so they can be shared through version control.
+
+To watch several sandboxes at once, split the tool window: right-click a tab and choose *Split Right* or
+*Split Down*, or drag a tab to an edge of the window. Each pane has its own `+`, and a new sandbox opens in the pane
+whose `+` you clicked.
 
 Closing a tab stops its sandbox. When Hole fails to start, the tab stays open with Hole's output, so you can read the
 error.

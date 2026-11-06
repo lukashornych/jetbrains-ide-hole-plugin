@@ -24,17 +24,21 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.github.lukashornych.hole.idea.testutil.Waiting.waitUntil;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -55,6 +59,10 @@ class SandboxSessionTest {
     /** Disabled unless a test needs the image paste, so the other tests see the command lines without the mount. */
     private PasteDirectory pastes = PasteDirectory.disabled();
     private final List<SandboxSession> started = new CopyOnWriteArrayList<>();
+    /** When set, a new instance ID (asked for right before a spawn) waits for it; holds a relaunch in its spawn window. */
+    private volatile CountDownLatch idGate;
+    /** Counted down when a new instance ID is asked for. */
+    private final CountDownLatch idRequested = new CountDownLatch(1);
 
     @BeforeEach
     void setUp() throws IOException {
@@ -632,6 +640,186 @@ class SandboxSessionTest {
     }
 
     @NotNull
+    private String nextId() {
+        this.idRequested.countDown();
+        final CountDownLatch gate = this.idGate;
+        if (gate != null) {
+            try {
+                assertTrue(gate.await(20, TimeUnit.SECONDS), "the test opens the gate");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+        }
+        return this.nextIds.isEmpty() ? "zzzzzz" : this.nextIds.poll();
+    }
+
+    @Test
+    void exitedSessionIsRelaunchedInTheSameSessionWithANewInstanceId() {
+        this.hole.environment().put("FAKE_HOLE_START_EXIT", "1");
+        this.nextIds.add("bbbbbb");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+        recorder.states.clear();
+
+        assertTrue(session.relaunch(launch(SandboxConfig.defaults(), withoutKey(this.hole.environment(), "FAKE_HOLE_START_EXIT"))));
+        assertEquals(1, recorder.restarts.get(), "the terminal reconnects to the new process");
+        assertEquals("bbbbbb", session.snapshot().instanceId());
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "new sandbox runs");
+        final SandboxSession.Snapshot running = session.snapshot();
+        assertEquals("bbbbbb", running.info().instanceId());
+        assertNull(running.exitCode(), "the old exit code is gone");
+        assertNull(running.stoppingSince());
+        assertFalse(running.restartPending());
+        assertFalse(running.closeRequested());
+        assertTrue(recorder.states.contains(SessionState.STOPPING), "\"Restarting\" while spawning: " + recorder.states);
+        assertTrue(recorder.states.contains(SessionState.STARTING), recorder.states.toString());
+        assertFalse(recorder.states.contains(SessionState.CLOSED), recorder.states.toString());
+        assertEquals(List.of("start claude . --instance-id aaaaaa", "start claude . --instance-id bbbbbb"), startCalls());
+    }
+
+    @Test
+    void relaunchIsRefusedUnlessExited() {
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "running");
+        assertFalse(session.relaunch(launch(SandboxConfig.defaults(), this.hole.environment())), "RUNNING");
+        assertEquals(SessionState.RUNNING, session.snapshot().state());
+        assertFalse(session.snapshot().restartPending());
+
+        session.requestClose();
+        assertFalse(session.relaunch(launch(SandboxConfig.defaults(), this.hole.environment())), "STOPPING after a close request");
+        waitUntil(() -> session.snapshot().state() == SessionState.CLOSED, "closed");
+        assertFalse(session.relaunch(launch(SandboxConfig.defaults(), this.hole.environment())), "CLOSED");
+        assertEquals(0, recorder.restarts.get());
+        assertEquals(1, startCalls().size(), startCalls().toString());
+    }
+
+    @Test
+    void relaunchIsRefusedAfterAnExitedSessionWasClosed() {
+        this.hole.environment().put("FAKE_HOLE_START_EXIT", "1");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+        session.requestClose();
+
+        assertFalse(session.relaunch(launch(SandboxConfig.defaults(), withoutKey(this.hole.environment(), "FAKE_HOLE_START_EXIT"))));
+        assertEquals(SessionState.CLOSED, session.snapshot().state());
+        assertEquals(1, startCalls().size(), startCalls().toString());
+    }
+
+    @Test
+    void closeDuringARelaunchClosesTheTabAndStopsTheNewProcess() throws Exception {
+        this.hole.environment().put("FAKE_HOLE_START_EXIT", "1");
+        this.nextIds.add("bbbbbb");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+        this.idGate = new CountDownLatch(1);
+
+        final CompletableFuture<Boolean> relaunched = CompletableFuture.supplyAsync(
+            () -> session.relaunch(launch(SandboxConfig.defaults(), withoutKey(this.hole.environment(), "FAKE_HOLE_START_EXIT"))),
+            this.background
+        );
+        assertTrue(this.idRequested.await(20, TimeUnit.SECONDS), "the relaunch is about to spawn");
+        final com.pty4j.PtyProcess old = session.process();
+        assertEquals(SessionState.STOPPING, session.snapshot().state());
+        // an EXITED session would be CLOSED at once without a close request, and the spawn would revive it
+        session.requestClose();
+        assertTrue(session.snapshot().closeRequested());
+        this.idGate.countDown();
+
+        assertTrue(relaunched.get(20, TimeUnit.SECONDS));
+        // the new sandbox would run on: CLOSED means it got SIGINT
+        waitUntil(() -> session.snapshot().state() == SessionState.CLOSED, "closed");
+        assertEquals(0, recorder.restarts.get(), "no terminal for the closing sandbox");
+        // the SIGINT may end the new Hole before it even logs its call, so the process is checked, not the calls
+        assertNotSame(old, session.process(), "the new process was spawned");
+        assertFalse(session.process().isAlive(), "and stopped");
+        assertFalse(Files.exists(this.hole.stateDirectory().resolve("instances/bbbbbb.json")), "the new sandbox is torn down");
+    }
+
+    @Test
+    void relaunchWithoutAProcessYetOffersNoForceStopAndNoPasteDirectory() throws Exception {
+        final Path pasteRoot = enableImagePaste();
+        this.hole.environment().put("FAKE_HOLE_START_EXIT", "1");
+        this.nextIds.add("bbbbbb");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+        this.idGate = new CountDownLatch(1);
+
+        final CompletableFuture<Boolean> relaunched = CompletableFuture.supplyAsync(
+            () -> session.relaunch(launch(SandboxConfig.defaults(), withoutKey(this.hole.environment(), "FAKE_HOLE_START_EXIT"))),
+            this.background
+        );
+        assertTrue(this.idRequested.await(20, TimeUnit.SECONDS), "the relaunch is about to spawn");
+        assertTrue(session.snapshot().relaunching());
+        assertNull(session.pasteDirectory(), "the old paste folder is deleted");
+        this.clock.advance(SandboxSession.FORCE_STOP_AFTER.plusSeconds(1));
+        assertFalse(session.canForceStop(this.clock.instant()), "no process to kill");
+        this.idGate.countDown();
+
+        assertTrue(relaunched.get(20, TimeUnit.SECONDS));
+        assertFalse(session.snapshot().relaunching());
+        assertEquals(pasteRoot.resolve("bbbbbb"), session.pasteDirectory());
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "new sandbox runs");
+    }
+
+    @Test
+    void secondRestartDuringARelaunchIsRefused() throws Exception {
+        this.hole.environment().put("FAKE_HOLE_START_EXIT", "1");
+        this.nextIds.add("bbbbbb");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+        final SandboxSession.Launch next = launch(SandboxConfig.defaults(), withoutKey(this.hole.environment(), "FAKE_HOLE_START_EXIT"));
+        this.idGate = new CountDownLatch(1);
+
+        final CompletableFuture<Boolean> first = CompletableFuture.supplyAsync(() -> session.relaunch(next), this.background);
+        assertTrue(this.idRequested.await(20, TimeUnit.SECONDS), "the first relaunch is about to spawn");
+        assertFalse(session.relaunch(next), "no second spawn");
+        assertFalse(session.restart(next), "nothing runs that could be restarted");
+        assertTrue(session.snapshot().restartPending());
+        this.idGate.countDown();
+
+        assertTrue(first.get(20, TimeUnit.SECONDS));
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "new sandbox runs");
+        assertEquals(1, recorder.restarts.get());
+        assertEquals(2, startCalls().size(), startCalls().toString());
+    }
+
+    @Test
+    void relaunchWhoseProcessCannotBeSpawnedStaysExitedWithTheOldExitCodeAndCanBeRelaunchedAgain() throws IOException {
+        this.hole.environment().put("FAKE_HOLE_START_EXIT", "3");
+        this.nextIds.add("bbbbbb");
+        this.nextIds.add("cccccc");
+        final Recorder recorder = new Recorder();
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", recorder);
+        waitUntil(() -> session.snapshot().state() == SessionState.EXITED, "exited");
+        final Path broken = Files.createDirectories(this.temp.resolve("not-a-binary"));
+        final SandboxSession.Launch unusable = new SandboxSession.Launch(
+            SandboxConfig.defaults(), false, broken, this.project, this.project, this.hole.environment()
+        );
+
+        assertTrue(session.relaunch(unusable));
+        final SandboxSession.Snapshot failed = session.snapshot();
+        assertEquals(SessionState.EXITED, failed.state());
+        assertEquals(3, failed.exitCode(), "the old exit code is shown");
+        assertEquals("aaaaaa", failed.instanceId());
+        assertFalse(failed.restartPending());
+        assertEquals(1, recorder.restartFailures.size(), recorder.restartFailures.toString());
+        assertEquals(0, recorder.restarts.get());
+
+        this.clock.advance(Duration.ofMinutes(5));
+        assertTrue(session.relaunch(launch(SandboxConfig.defaults(), withoutKey(this.hole.environment(), "FAKE_HOLE_START_EXIT"))));
+        waitUntil(() -> session.snapshot().state() == SessionState.RUNNING, "the next relaunch works");
+        assertEquals("cccccc", session.snapshot().instanceId());
+        assertEquals(1, recorder.restartFailures.size());
+    }
+
+    @NotNull
     private SandboxSession.Launch launch(@NotNull SandboxConfig config, @NotNull Map<String, String> environment) {
         return new SandboxSession.Launch(config, false, this.hole.executable(), this.project, this.project, environment);
     }
@@ -659,7 +847,7 @@ class SandboxSessionTest {
     ) {
         final SessionServices services = new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            () -> this.nextIds.isEmpty() ? "zzzzzz" : this.nextIds.poll(), this.clock, background, this.pastes
+            this::nextId, this.clock, background, this.pastes
         );
         final SandboxSession.Launch launch = new SandboxSession.Launch(
             config, debug, this.hole.executable(), this.project, this.project, this.hole.environment()

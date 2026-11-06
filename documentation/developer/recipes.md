@@ -66,8 +66,8 @@ below), and a case in `RealHoleBinaryTest` that runs the command against a real 
 
 - [ ] `./gradlew test` passes.
 - [ ] `./gradlew buildPlugin` succeeds.
-- [ ] `./gradlew verifyPlugin` reports *Compatible* with no deprecated or internal API usages — at least when
-      platform API usage changed.
+- [ ] `./gradlew verifyPlugin` reports *Compatible* with no deprecated or internal API usages other than the known
+      split opt-in ([guidelines](guidelines.md#platform-api)) — at least when platform API usage changed.
 - [ ] `RealHoleBinaryTest` passes against a real Hole when a Hole command or option was added or changed.
 - [ ] Behaviour changes are in the [specification](specification.md) and, when user-visible, in the README;
       developer-facing changes are in `documentation/developer/`.

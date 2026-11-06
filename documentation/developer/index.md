@@ -37,6 +37,8 @@ src/main/java/io/github/lukashornych/hole/idea/
   storage/                  persisted plugin settings and favourites (application and project level)
   ui/                       tool window, sandbox tabs, dialogs, settings page
   ui/network/               the runtime network window (`hole modify`)
+  ui/library/               the Libraries window (`libraries` of the settings files)
+  ui/settings/              settings files edited through their IDE documents (Network, Libraries)
   model/, git/              value records, `git worktree list` parsing
 src/main/resources/         plugin.xml, icons (each with a `_dark` variant)
 src/test/java/              tests, mirroring the main packages; helpers in `testutil/`

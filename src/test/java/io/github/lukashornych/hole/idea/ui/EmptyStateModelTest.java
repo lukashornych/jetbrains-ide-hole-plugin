@@ -31,7 +31,7 @@ class EmptyStateModelTest {
         assertEquals(List.of(
             "TITLE No sandboxes are running",
             "NEW_SANDBOX New Sandbox…",
-            "GAP ",
+            "HINT Shift+click starts in Debug Shell",
             "HEADER This project",
             "FAVOURITE acme tests | claude:research",
             "HEADER All projects",
@@ -60,6 +60,20 @@ class EmptyStateModelTest {
         assertEquals("FAVOURITE acme tests | claude:research", lines.get(4), "the project favourite is kept");
         assertEquals("FAVOURITE Global 4 | claude", lines.get(lines.size() - 2));
         assertEquals("MORE_AND_EDIT Edit Favourites…", lines.get(lines.size() - 1));
+    }
+
+    @Test
+    void debugHintTakesThePlaceOfTheGapSoFiveFavouritesKeepTheirHeight() {
+        final List<Favourite> five = new ArrayList<>();
+        five.add(TESTS);
+        for (int i = 1; i <= 4; i++) {
+            five.add(CLAUDE.withName("Global " + i));
+        }
+        final List<String> lines = lines(EmptyStateModel.of(five, null));
+        // title, New Sandbox…, hint, 2 headers, 5 favourites, Edit Favourites…
+        assertEquals(11, lines.size());
+        assertEquals("HINT Shift+click starts in Debug Shell", lines.get(2));
+        assertEquals(0, lines.stream().filter(line -> line.startsWith("GAP")).count());
     }
 
     @Test

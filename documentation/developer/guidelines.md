@@ -23,6 +23,13 @@ report *Compatible* with no deprecated or internal API usages for every recommen
 supported IDE versions, pick the one that works on all of them (see `HoleTtyConnector` for an example) and say why
 in the class Javadoc.
 
+**The one known exception** is the tool window split opt-in, `HoleToolWindowFactory.allowTabSplitting`: no stable API
+covers every supported IDE, so it sets the `ToolWindowContentUi.ALLOW_DND_FOR_TABS` client property (deprecated from
+2025.3, the only way in 2025.2) and calls `ToolWindow.setTabsSplittingAllowed(true)` (`@ApiStatus.Experimental`, the
+only way from 2026.1, called reflectively because 2025.2 lacks it). The method is marked `@ApiStatus.Experimental`.
+`verifyPlugin` reports the deprecated key on 2025.3+; that warning is expected, any other one is not. Never add a
+second exception without a record in `documentation/adr/`.
+
 ## Java conventions
 
 - Modern Java: records for value types, `final` classes unless designed for extension, `final` local variables,
@@ -58,8 +65,15 @@ analyses or other working notes that are not committed. Extended documentation b
   compute its settings paths or parse its human-readable output. See [architecture](architecture.md#principles).
 - **Stop sandboxes through the process group** of `hole start` (SIGINT, SIGKILL for Force Stop) — never the process
   tree, never `0x03` written to the pty. See [architecture](architecture.md#stopping-signals-to-the-process-group).
-- **No GUI for Hole's settings content.** Hole's settings keys change often; the plugin links to the files and lets
-  Hole create them, nothing more.
+- **No generic GUI for Hole's settings content; day-to-day settings may get a narrow editor.** Hole's settings keys
+  change often, so the plugin links to the files, lets Hole create them and never offers a general settings editor.
+  A common, day-to-day setting may be changed in the GUI when it is curated, top-level and gets a narrow editor of its
+  own — today the Network window's `network.allow` / `network.hostGatewayDomains` entries (`hole.SettingsEntries`)
+  and the Libraries window's `libraries` (`hole.SettingsLibraries`). Such an editor changes only its key: Hole names
+  the file (`hole settings get|create`), unknown keys and the rest of the document are kept (two-space indent, key
+  order, untouched entries in their form), `profiles` is never touched, and the edit goes through the IDE document
+  (`ui.settings.SettingsDocuments`). Everything else is edited in the file. Adding another setting is a decision: say why it
+  is day-to-day and record it (see the [ADR](../adr/2026-11-05-day-to-day-settings-editable-in-the-gui.md)).
 - **Behaviour changes update the [specification](specification.md)** in the same change.
 
 ## Testing
