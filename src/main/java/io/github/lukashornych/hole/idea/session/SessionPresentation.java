@@ -53,25 +53,70 @@ public final class SessionPresentation {
 
     /**
      * Returns the question of the restart confirmation, e.g. {@code Restart 'claude' in 'my-project' with
-     * Docker-in-Docker enabled? The agent session ends and a new sandbox starts in this tab.}
+     * Docker-in-Docker enabled? The agent session ends and a new sandbox starts in this tab.} (or {@code with
+     * unrestricted network enabled}, see {@link RestartChange}).
      *
-     * @param config        the running configuration
-     * @param projectFolder name of the project folder
-     * @param docker        Docker-in-Docker of the new sandbox when the restart toggles it, {@code null} for a plain
-     *                      restart with the same configuration
+     * @param config         the running configuration
+     * @param projectFolder  name of the project folder
+     * @param change         the option the restart toggles, {@code null} for a plain restart with the same configuration
      * @param runtimeEntries network entries added with 'hole modify' (`runtimeEntryCount` of `hole list`); a restart
-     *                      loses them, so the question says so when there are any
+     *                       loses them, so the question says so when there are any
      */
     @NotNull
     public static String restartQuestion(
-        @NotNull SandboxConfig config, @NotNull String projectFolder, @Nullable Boolean docker, long runtimeEntries
+        @NotNull SandboxConfig config, @NotNull String projectFolder, @Nullable RestartChange change, long runtimeEntries
     ) {
-        final String change = docker == null ? "" : " with Docker-in-Docker " + (docker ? "enabled" : "disabled");
+        final String changed = change == null ? "" : " " + change.text;
         final String lost = runtimeEntries <= 0 ? ""
             : " " + runtimeEntries + (runtimeEntries == 1 ? " network entry" : " network entries")
                 + " added with 'hole modify' will be lost.";
-        return "Restart '" + config.agentSpec() + "' in '" + projectFolder + "'" + change + "? "
+        return "Restart '" + config.agentSpec() + "' in '" + projectFolder + "'" + changed + "? "
             + "The agent session ends and a new sandbox starts in this tab." + lost;
+    }
+
+    /**
+     * An option a header pill toggles through a restart.
+     */
+    public enum RestartChange {
+        DOCKER_ON("with Docker-in-Docker enabled"),
+        DOCKER_OFF("with Docker-in-Docker disabled"),
+        UNRESTRICTED_ON("with unrestricted network enabled"),
+        UNRESTRICTED_OFF("with unrestricted network disabled");
+
+        private final String text;
+
+        RestartChange(@NotNull String text) {
+            this.text = text;
+        }
+
+        /**
+         * Returns the change the Docker pill makes when Docker-in-Docker is currently {@code enabled}.
+         */
+        @NotNull
+        public static RestartChange toggleDocker(boolean enabled) {
+            return enabled ? DOCKER_OFF : DOCKER_ON;
+        }
+
+        /**
+         * Returns the change the Network pill makes when unrestricted network is currently {@code enabled}.
+         */
+        @NotNull
+        public static RestartChange toggleUnrestricted(boolean enabled) {
+            return enabled ? UNRESTRICTED_OFF : UNRESTRICTED_ON;
+        }
+
+        /**
+         * Returns the configuration the restarted sandbox starts with.
+         */
+        @NotNull
+        public SandboxConfig apply(@NotNull SandboxConfig config) {
+            return switch (this) {
+                case DOCKER_ON -> config.withWithDocker(true);
+                case DOCKER_OFF -> config.withWithDocker(false);
+                case UNRESTRICTED_ON -> config.withUnrestrictedNetwork(true);
+                case UNRESTRICTED_OFF -> config.withUnrestrictedNetwork(false);
+            };
+        }
     }
 
     /**

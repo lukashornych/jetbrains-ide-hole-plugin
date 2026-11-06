@@ -55,7 +55,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>The header is re-rendered only when its {@link HeaderModel} changed; the 1 s timer (stopping / restarting timer,
  * Force Stop after 30 s) does nothing once the sandbox is no longer alive.</p>
  *
- * <p>Restart and the Docker toggle ask for a confirmation (the agent session ends) and then let the manager restart
+ * <p>Restart and the Network / Docker pill toggles ask for a confirmation (the agent session ends) and then let the manager restart
  * the sandbox in this tab; the terminal is replaced on {@link #reconnect()}.</p>
  */
 final class SandboxTabPanel extends HoleToolWindowView.Tab {
@@ -85,8 +85,8 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
         this.session = session;
         this.manager = manager;
         this.header = new SandboxHeaderPanel(
-            session::forceStop, () -> manager.requestClose(session), this::toggleDocker, this::restart, this::openSettings,
-            this::openNetwork
+            session::forceStop, () -> manager.requestClose(session), this::toggleNetwork, this::toggleDocker, this::restart,
+            this::openSettings, this::openNetwork
         );
         add(this.header, BorderLayout.NORTH);
         // the stopping timer and the Force Stop offer tick locally between polls
@@ -221,16 +221,33 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
             return;
         }
         final SandboxSession.Launch launch = this.session.launch();
-        final boolean docker = !info.docker();
-        if (confirmRestart(launch, docker)) {
-            this.manager.restart(this.session, launch.config().withWithDocker(docker));
+        restartWith(launch, SessionPresentation.RestartChange.toggleDocker(info.docker()));
+    }
+
+    /**
+     * Click on the Network pill of a running sandbox: restart with unrestricted network toggled, after a confirmation.
+     * The shown state comes from Hole's metadata; the favourite the sandbox was started from is not changed.
+     */
+    private void toggleNetwork() {
+        final SandboxSession.Snapshot snapshot = this.session.snapshot();
+        final InstanceInfo info = snapshot.info();
+        if (snapshot.state() != SessionState.RUNNING || info == null) {
+            return;
+        }
+        final SandboxSession.Launch launch = this.session.launch();
+        restartWith(launch, SessionPresentation.RestartChange.toggleUnrestricted(info.flags().unrestricted()));
+    }
+
+    private void restartWith(@NotNull SandboxSession.Launch launch, @NotNull SessionPresentation.RestartChange change) {
+        if (confirmRestart(launch, change)) {
+            this.manager.restart(this.session, change.apply(launch.config()));
         }
     }
 
-    private boolean confirmRestart(@NotNull SandboxSession.Launch launch, @Nullable Boolean docker) {
+    private boolean confirmRestart(@NotNull SandboxSession.Launch launch, @Nullable SessionPresentation.RestartChange change) {
         final InstanceInfo info = this.session.snapshot().info();
         final String question = SessionPresentation.restartQuestion(
-            launch.config(), SessionPresentation.projectFolder(launch.projectDirectory()), docker,
+            launch.config(), SessionPresentation.projectFolder(launch.projectDirectory()), change,
             info == null ? 0 : info.runtimeEntryCount()
         );
         return MessageDialogBuilder.yesNo("Restart Sandbox", question)

@@ -77,11 +77,14 @@ user to answer. The plugin does not intercept them.
 to the editor as in other tool windows. The Terminal plugin's "Move focus to the editor with Escape" advanced setting
 does not apply to sandbox tabs.
 
-The **header** shows:
+The **header** shows, in this order:
 
+- the project folder name followed by its git checkout kind: `app (main)` for the main worktree, and for a linked
+  worktree also its parent folder, e.g. `app-worktrees/fix (worktree)`. The absolute path is in the tooltip. The kind
+  is decided once per tab by `git worktree list --porcelain` in the background; until then, and when the folder is
+  not in a git repository or git is missing or fails, only the folder name is shown,
 - instance ID,
-- whether the Docker-in-Docker sidecar is enabled; while the sandbox runs, clicking the pill restarts it with
-  Docker-in-Docker toggled (see *Restart* below; the favourite it was started from is not changed),
+- a *Debug Shell* pill for debug runs,
 - the **Settings** field with two links, **Global** and **Project**: a link of a file used by this sandbox is shown
   normally, a file not used (missing, or created after the start) is dimmed with the tooltip *Not used by this
   sandbox; restart to apply after creating it*. The field's tooltip has the `hole list` labels
@@ -91,21 +94,23 @@ The **header** shows:
   exist. Create it from Hole's template?* and runs `hole settings create …` (a file created meanwhile is simply
   opened). Other failures (e.g. a relative `HOLE_SETTINGS_FILE`) end in a balloon with Hole's message. A worktree
   sandbox opens its worktree's file,
-- the project folder name followed by its git checkout kind: `app (main)` for the main worktree, and for a linked
-  worktree also its parent folder, e.g. `app-worktrees/fix (worktree)`. The absolute path is in the tooltip. The kind
-  is decided once per tab by `git worktree list --porcelain` in the background; until then, and when the folder is
-  not in a git repository or git is missing or fails, only the folder name is shown,
-- a *Debug Shell* pill for debug runs,
+- the **Network** mode: a yellow `RESTRICTED` pill by default, a red `UNRESTRICTED` pill when the sandbox was started
+  with `-u` (`flags.unrestricted` of `hole list`); while the sandbox runs, clicking the pill restarts it with
+  unrestricted network toggled (see *Restart* below; the favourite is not changed). The allow list itself is shown
+  only in the *Network…* window,
+- whether the Docker-in-Docker sidecar is enabled; while the sandbox runs, clicking the pill restarts it with
+  Docker-in-Docker toggled (see *Restart* below; the favourite it was started from is not changed),
 - a small toolbar at the right end with **Restart** and **Network…**, both enabled only while the sandbox runs.
 
-The instance ID is known from the start (the plugin chooses it). The other fields are rendered lazily, with skeleton
-placeholders until Hole reports the instance. While the sandbox is stopping, the header shows *Stopping for N s*
-(*Restarting for N s* during a restart), and after 30 seconds it offers a **Force Stop** button.
+The instance ID is known from the start (the plugin chooses it). The other fields (the project first) are rendered
+lazily, with skeleton placeholders until Hole reports the instance. While the sandbox is stopping, the header shows
+*Stopping for N s* (*Restarting for N s* during a restart), and after 30 seconds it offers a **Force Stop** button.
 
-**Restart** (toolbar, or the Docker pill) always asks first: *Restart 'claude' in 'my-project'? The agent session ends
-and a new sandbox starts in this tab.* (with *with Docker-in-Docker enabled/disabled* for the pill), plus *N network
-entries added with 'hole modify' will be lost.* when `hole list` reports runtime entries. There is no *Do not ask
-again*. See [Sandbox lifecycle](#sandbox-lifecycle) for what a restart does.
+**Restart** (toolbar, or the Network / Docker pill) always asks first: *Restart 'claude' in 'my-project'? The agent
+session ends and a new sandbox starts in this tab.* (with *with unrestricted network enabled/disabled* or *with
+Docker-in-Docker enabled/disabled* for the pills), plus *N network entries added with 'hole modify' will be lost.*
+when `hole list` reports runtime entries. There is no *Do not ask again*. See [Sandbox lifecycle](#sandbox-lifecycle)
+for what a restart does.
 
 ### Runtime network
 
@@ -325,13 +330,13 @@ writes Ctrl-C (`0x03`) to the pty.
   tab shows the stopping state, and when the process exits the tab closes and the previously selected tab is selected.
   After 30 seconds the header offers *Force Stop*, which sends SIGKILL to the process group; Hole's watchdog survives
   it and finishes the teardown in the background.
-- **Restart** (header toolbar or Docker pill, only while running): SIGINT to the process group like a close; once
-  the process has exited, `hole start` runs again **in the same tab** with a **new instance ID** (after Force Stop or
-  Hole's relay timeout the old one is still taken), the same mode (agent / debug shell), the possibly changed config,
-  a freshly read shell environment and a fresh probe of Hole (executable and environment may have changed after
-  `hole update`). The terminal widget is
-  replaced, so the old output is gone. Force Stop during a restart only kills the old process; the restart goes on. A
-  close request during a pending restart wins and closes the tab. When the new process cannot be started, the tab
-  shows *Exited with code N* and a notification tells the user that the old sandbox is gone.
+- **Restart** (header toolbar, Network or Docker pill, only while running): SIGINT to the process group like a
+  close; once the process has exited, `hole start` runs again **in the same tab** with a **new instance ID** (after
+  Force Stop or Hole's relay timeout the old one is still taken), the same mode (agent / debug shell), the possibly
+  changed config, a freshly read shell environment and a fresh probe of Hole (executable and environment may have
+  changed after `hole update`). The terminal widget is replaced, so the old output is gone. Force Stop during a
+  restart only kills the old process; the restart goes on. A close request during a pending restart wins and closes
+  the tab. When the new process cannot be started, the tab shows *Exited with code N* and a notification tells the
+  user that the old sandbox is gone.
 - **IDE is closed**: the plugin sends SIGINT to the process group of every running sandbox and does **not** wait for
   shutdown, because no tab needs to be selected afterwards.

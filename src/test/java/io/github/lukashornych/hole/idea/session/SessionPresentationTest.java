@@ -35,8 +35,37 @@ class SessionPresentationTest {
         assertEquals("Restart 'claude:research' in 'acme-cms'? The agent session ends and a new sandbox starts in this tab.",
             SessionPresentation.restartQuestion(config, "acme-cms", null, 0));
         assertEquals("Restart 'claude:research' in 'acme-cms' with Docker-in-Docker enabled? The agent session ends and a new "
-            + "sandbox starts in this tab.", SessionPresentation.restartQuestion(config, "acme-cms", true, 0));
-        assertTrue(SessionPresentation.restartQuestion(config, "acme-cms", false, 0).contains("with Docker-in-Docker disabled?"));
+            + "sandbox starts in this tab.", SessionPresentation.restartQuestion(config, "acme-cms", SessionPresentation.RestartChange.DOCKER_ON, 0));
+        assertTrue(SessionPresentation.restartQuestion(config, "acme-cms", SessionPresentation.RestartChange.DOCKER_OFF, 0)
+            .contains("with Docker-in-Docker disabled?"));
+    }
+
+    @Test
+    void restartQuestionNamesNetworkModeChange() {
+        final SandboxConfig config = SandboxConfig.defaults();
+        assertEquals("Restart 'claude' in 'acme-cms' with unrestricted network enabled? The agent session ends and a new "
+            + "sandbox starts in this tab.", SessionPresentation.restartQuestion(config, "acme-cms", SessionPresentation.RestartChange.UNRESTRICTED_ON, 0));
+        assertTrue(SessionPresentation.restartQuestion(config, "acme-cms", SessionPresentation.RestartChange.UNRESTRICTED_OFF, 0)
+            .contains("in 'acme-cms' with unrestricted network disabled?"));
+    }
+
+    @Test
+    void pillTogglesFlipTheirOptionAndKeepTheRest() {
+        final SandboxConfig config = SandboxConfig.defaults().withProfile("research");
+        final SessionPresentation.RestartChange dockerOn = SessionPresentation.RestartChange.toggleDocker(false);
+        assertEquals(SessionPresentation.RestartChange.DOCKER_ON, dockerOn);
+        assertEquals(config.withWithDocker(true), dockerOn.apply(config));
+        final SessionPresentation.RestartChange dockerOff = SessionPresentation.RestartChange.toggleDocker(true);
+        assertEquals(SessionPresentation.RestartChange.DOCKER_OFF, dockerOff);
+        assertEquals(config, dockerOff.apply(config.withWithDocker(true)));
+
+        final SessionPresentation.RestartChange unrestrictedOn = SessionPresentation.RestartChange.toggleUnrestricted(false);
+        assertEquals(SessionPresentation.RestartChange.UNRESTRICTED_ON, unrestrictedOn);
+        assertEquals(config.withUnrestrictedNetwork(true), unrestrictedOn.apply(config));
+        final SessionPresentation.RestartChange unrestrictedOff = SessionPresentation.RestartChange.toggleUnrestricted(true);
+        assertEquals(SessionPresentation.RestartChange.UNRESTRICTED_OFF, unrestrictedOff);
+        assertEquals(config.withWithDocker(true), unrestrictedOff.apply(config.withWithDocker(true).withUnrestrictedNetwork(true)),
+            "the other options stay as they were");
     }
 
     @Test
@@ -44,8 +73,10 @@ class SessionPresentationTest {
         final SandboxConfig config = SandboxConfig.defaults();
         assertTrue(SessionPresentation.restartQuestion(config, "acme-cms", null, 3)
             .endsWith("in this tab. 3 network entries added with 'hole modify' will be lost."));
-        assertTrue(SessionPresentation.restartQuestion(config, "acme-cms", true, 1)
+        assertTrue(SessionPresentation.restartQuestion(config, "acme-cms", SessionPresentation.RestartChange.DOCKER_ON, 1)
             .endsWith(" 1 network entry added with 'hole modify' will be lost."), "also for the Docker toggle");
+        assertTrue(SessionPresentation.restartQuestion(config, "acme-cms", SessionPresentation.RestartChange.UNRESTRICTED_OFF, 2)
+            .endsWith(" 2 network entries added with 'hole modify' will be lost."), "also for the network toggle");
     }
 
     @Test

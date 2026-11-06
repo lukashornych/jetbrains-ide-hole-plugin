@@ -35,11 +35,11 @@ import java.awt.event.MouseEvent;
 import java.util.function.Consumer;
 
 /**
- * The small header above a sandbox terminal: instance ID, Debug Shell pill, Docker, the Global / Project settings
- * links (dimmed when the sandbox does not use that file) and project path; the
- * stopping (or restarting) timer with Force Stop; or "Exited with code N" with Close. Fields Hole reports are skeleton
- * placeholders until the first metadata arrives. The network is deliberately not shown. While the sandbox runs, the
- * Docker pill toggles Docker-in-Docker through a restart, and the toolbar at the right end offers Restart.
+ * The small header above a sandbox terminal: project, instance ID, Debug Shell pill, the Global / Project settings
+ * links (dimmed when the sandbox does not use that file), network mode and Docker; the stopping (or restarting) timer
+ * with Force Stop; or "Exited with code N" with Close. Fields Hole reports are skeleton placeholders until the first
+ * metadata arrives. While the sandbox runs, the Network and Docker pills toggle unrestricted network and
+ * Docker-in-Docker through a restart, and the toolbar at the right end offers Restart and Network….
  */
 final class SandboxHeaderPanel extends JPanel {
 
@@ -51,6 +51,9 @@ final class SandboxHeaderPanel extends JPanel {
 
     private final JBLabel instance = value();
     private final Pill debugPill = new Pill("DEBUG SHELL", WARN);
+    private final JComponent networkField;
+    private final Pill networkPill = new Pill("RESTRICTED", WARN);
+    private final Skeleton networkSkeleton = new Skeleton(90);
     private final JComponent dockerField;
     private final Pill dockerPill = new Pill("NO", MUTED);
     private final Skeleton dockerSkeleton = new Skeleton(26);
@@ -70,16 +73,18 @@ final class SandboxHeaderPanel extends JPanel {
     private volatile HeaderModel model;
 
     /**
-     * @param onForceStop    called when Force Stop is pressed
-     * @param onClose        called when Close is pressed
-     * @param onToggleDocker called when the Docker pill of a running sandbox is clicked
-     * @param onRestart      called when Restart is pressed (only enabled while the sandbox runs)
-     * @param onSettings     called with the scope when the Global or Project settings link is clicked
-     * @param onNetwork      called when Network is pressed (only enabled while the sandbox runs)
+     * @param onForceStop     called when Force Stop is pressed
+     * @param onClose         called when Close is pressed
+     * @param onToggleNetwork called when the Network pill of a running sandbox is clicked
+     * @param onToggleDocker  called when the Docker pill of a running sandbox is clicked
+     * @param onRestart       called when Restart is pressed (only enabled while the sandbox runs)
+     * @param onSettings      called with the scope when the Global or Project settings link is clicked
+     * @param onNetwork       called when Network is pressed (only enabled while the sandbox runs)
      */
     SandboxHeaderPanel(
         @NotNull Runnable onForceStop,
         @NotNull Runnable onClose,
+        @NotNull Runnable onToggleNetwork,
         @NotNull Runnable onToggleDocker,
         @NotNull Runnable onRestart,
         @NotNull Consumer<HoleSettingsClient.Scope> onSettings,
@@ -89,8 +94,6 @@ final class SandboxHeaderPanel extends JPanel {
         setBorder(JBUI.Borders.compound(JBUI.Borders.customLineBottom(JBUI.CurrentTheme.ToolWindow.borderColor()), JBUI.Borders.empty(2, 6)));
         final JPanel fields = new JPanel(new WrapLayout(FlowLayout.LEFT, JBUI.scale(16), JBUI.scale(4)));
         fields.setOpaque(false);
-        fields.add(field("Instance", this.instance));
-        fields.add(this.debugPill);
         this.dockerField = field("Docker", this.dockerPill, this.dockerSkeleton);
         this.globalSettings = new ActionLink("Global", event -> {
             onSettings.accept(HoleSettingsClient.Scope.GLOBAL);
@@ -100,9 +103,21 @@ final class SandboxHeaderPanel extends JPanel {
         });
         this.settingsField = field("Settings", this.globalSettings, this.projectSettings, this.settingsSkeleton);
         this.projectField = field("Project", this.project, this.projectSkeleton);
-        fields.add(this.dockerField);
-        fields.add(this.settingsField);
+        this.networkField = field("Network", this.networkPill, this.networkSkeleton);
         fields.add(this.projectField);
+        fields.add(field("Instance", this.instance));
+        fields.add(this.debugPill);
+        fields.add(this.settingsField);
+        fields.add(this.networkField);
+        fields.add(this.dockerField);
+        this.networkPill.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent event) {
+                if (SandboxHeaderPanel.this.model != null && SandboxHeaderPanel.this.model.networkToggle()) {
+                    onToggleNetwork.run();
+                }
+            }
+        });
         this.dockerPill.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent event) {
@@ -149,13 +164,16 @@ final class SandboxHeaderPanel extends JPanel {
 
         final boolean fields = model.pending() || model.metadata();
         this.dockerField.setVisible(fields);
+        this.networkField.setVisible(fields);
         this.settingsField.setVisible(fields);
         this.projectField.setVisible(fields);
 
         this.dockerSkeleton.setVisible(model.pending());
+        this.networkSkeleton.setVisible(model.pending());
         this.settingsSkeleton.setVisible(model.pending());
         this.projectSkeleton.setVisible(model.pending());
         this.dockerPill.setVisible(model.metadata());
+        this.networkPill.setVisible(model.metadata());
         this.globalSettings.setVisible(model.metadata());
         this.projectSettings.setVisible(model.metadata());
         this.project.setVisible(model.metadata());
@@ -163,6 +181,11 @@ final class SandboxHeaderPanel extends JPanel {
         this.dockerPill.setCursor(model.dockerToggle() ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : null);
         this.dockerPill.setToolTipText(model.dockerToggle()
             ? "Click to restart the sandbox with Docker-in-Docker " + (model.docker() ? "off" : "on")
+            : null);
+        this.networkPill.setPill(model.unrestricted() ? "UNRESTRICTED" : "RESTRICTED", model.unrestricted() ? ERROR : WARN);
+        this.networkPill.setCursor(model.networkToggle() ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : null);
+        this.networkPill.setToolTipText(model.networkToggle()
+            ? "Click to restart the sandbox with unrestricted network " + (model.unrestricted() ? "off" : "on")
             : null);
         showSettingsLink(this.globalSettings, model.globalUsed(), "global");
         showSettingsLink(this.projectSettings, model.projectUsed(), "project");
