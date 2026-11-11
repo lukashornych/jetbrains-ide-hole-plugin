@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * Connects the terminal widget to the `hole` pty and lets the session see what the widget reads, so it can recognise
- * Hole's "instance ID already in use" error without parsing anything else. Resizes of the widget are forwarded to the
+ * Hole's "instance ID already in use" error and clipboard writes (OSC 52). Resizes of the widget are forwarded to the
  * pty.
  *
  * <p>It extends jediterm's {@link ProcessTtyConnector}, not IntelliJ's {@code PtyProcessTtyConnector}, whose

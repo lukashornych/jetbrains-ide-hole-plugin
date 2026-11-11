@@ -58,6 +58,7 @@ class SandboxSessionTest {
     private final Deque<String> nextIds = new ArrayDeque<>();
     /** Disabled unless a test needs the image paste, so the other tests see the command lines without the mount. */
     private PasteDirectory pastes = PasteDirectory.disabled();
+    private final CapturingClipboard clipboard = new CapturingClipboard();
     private final List<SandboxSession> started = new CopyOnWriteArrayList<>();
     /** When set, a new instance ID (asked for right before a spawn) waits for it; holds a relaunch in its spawn window. */
     private volatile CountDownLatch idGate;
@@ -103,6 +104,15 @@ class SandboxSessionTest {
         assertEquals(130, session.snapshot().exitCode());
         waitUntil(() -> recorder.drain.output().contains("Destroying sandbox aaaaaa"), () -> "teardown output: " + recorder.drain.output());
         assertTrue(this.hole.calls().stream().anyMatch(call -> call.startsWith("start claude . --instance-id aaaaaa")), this.hole.calls().toString());
+    }
+
+    @Test
+    void osc52WriteReachesTheClipboardOfTheSession() {
+        this.hole.environment().put("FAKE_HOLE_OSC52", "žluťoučký kůň 🐎");
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", new Recorder());
+        waitUntil(() -> !this.clipboard.copies.isEmpty(), "clipboard written");
+        assertEquals(List.of("žluťoučký kůň 🐎"), this.clipboard.copies);
+        assertEquals(List.of(session), this.clipboard.sessions);
     }
 
     @Test
@@ -219,7 +229,7 @@ class SandboxSessionTest {
         );
         final SandboxSession session = new SandboxSession(launch, "aaaaaa", new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled()
+            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled(), ClipboardSink.NONE
         ), recorder);
         session.start();
         this.started.add(session);
@@ -238,7 +248,7 @@ class SandboxSessionTest {
         );
         final SandboxSession session = new SandboxSession(launch, "aaaaaa", new SessionServices(
             new HoleTerminalRunner(), (pid, signal) -> signals.incrementAndGet() > 0, MetadataSource.of(this.poller),
-            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled()
+            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled(), ClipboardSink.NONE
         ), recorder);
         try {
             session.start();
@@ -315,7 +325,7 @@ class SandboxSessionTest {
             SandboxConfig.defaults(), false, this.hole.executable(), this.project, this.project, this.hole.environment()
         ), "aaaaaa", new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled()
+            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled(), ClipboardSink.NONE
         ), recorder);
         session.setAgentTitle("✳ Fix EntityIndexTest");
         session.setAgentTitle("✳ Fix EntityIndexTest");
@@ -847,7 +857,7 @@ class SandboxSessionTest {
     ) {
         final SessionServices services = new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            this::nextId, this.clock, background, this.pastes
+            this::nextId, this.clock, background, this.pastes, this.clipboard
         );
         final SandboxSession.Launch launch = new SandboxSession.Launch(
             config, debug, this.hole.executable(), this.project, this.project, this.hole.environment()
@@ -890,6 +900,22 @@ class SandboxSessionTest {
             }
         }
         return waiting;
+    }
+
+    private static final class CapturingClipboard implements ClipboardSink {
+        final List<String> copies = new CopyOnWriteArrayList<>();
+        final List<SandboxSession> sessions = new CopyOnWriteArrayList<>();
+
+        @Override
+        public void copy(@NotNull SandboxSession session, @NotNull String text) {
+            this.sessions.add(session);
+            this.copies.add(text);
+        }
+
+        @Override
+        public void tooLarge(@NotNull SandboxSession session) {
+            throw new AssertionError("no write over the limit expected");
+        }
     }
 
     private static final class Recorder implements SandboxSession.Listener {

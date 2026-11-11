@@ -86,7 +86,7 @@ class SandboxSessionManagerTest {
         final SessionServices services = new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
             new io.github.lukashornych.hole.idea.hole.InstanceIdGenerator()::generate, Clock.systemUTC(), this::executeInBackground,
-            PasteDirectory.disabled()
+            PasteDirectory.disabled(), ClipboardSink.NONE
         );
         this.manager = new SandboxSessionManager(
             this.project, () -> this.capability.get(), () -> {
@@ -515,7 +515,7 @@ class SandboxSessionManagerTest {
                 throw io.github.lukashornych.hole.idea.process.ShellEnvironmentException.cancelled("/bin/zsh");
             },
             new SessionServices(new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-                () -> "aaaaaa", Clock.systemUTC(), this.background, PasteDirectory.disabled()),
+                () -> "aaaaaa", Clock.systemUTC(), this.background, PasteDirectory.disabled(), ClipboardSink.NONE),
             this.ui, this.notifier
         );
         assertNull(cancelling.start(SandboxConfig.defaults(), false, "aaaaaa").get(20, TimeUnit.SECONDS));
