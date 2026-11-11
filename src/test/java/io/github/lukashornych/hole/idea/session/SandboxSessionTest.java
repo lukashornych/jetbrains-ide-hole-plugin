@@ -31,6 +31,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -53,6 +54,7 @@ class SandboxSessionTest {
     private FakeHole hole;
     private Path project;
     private MetadataPoller poller;
+    private ScheduledExecutorService pollerExecutor;
     private ExecutorService background;
     private MutableClock clock;
     private final Deque<String> nextIds = new ArrayDeque<>();
@@ -70,7 +72,8 @@ class SandboxSessionTest {
         this.hole = FakeHole.install(this.temp.resolve("fake"));
         this.project = Files.createDirectories(this.temp.resolve("demo"));
         final HoleListClient client = new HoleListClient(this.hole.executable().toString(), new CliRunner(this.hole::environment));
-        this.poller = new MetadataPoller(client::listAll, Executors.newSingleThreadScheduledExecutor(), true,
+        this.pollerExecutor = Executors.newSingleThreadScheduledExecutor();
+        this.poller = new MetadataPoller(client::listAll, this.pollerExecutor, true,
             Duration.ofMillis(100), Duration.ofMillis(300));
         this.background = Executors.newCachedThreadPool();
         this.clock = new MutableClock(Instant.parse("2026-10-21T10:00:00Z"));
@@ -78,12 +81,22 @@ class SandboxSessionTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws InterruptedException {
         for (SandboxSession session : this.started) {
             session.forceStop();
         }
         this.poller.dispose();
         this.background.shutdownNow();
+        // nothing may write into the temporary directory while JUnit deletes it: a `hole list` of the poller, a
+        // `hole start` still tearing down
+        assertTrue(this.pollerExecutor.awaitTermination(20, TimeUnit.SECONDS), "poller stopped");
+        assertTrue(this.background.awaitTermination(20, TimeUnit.SECONDS), "background stopped");
+        for (SandboxSession session : this.started) {
+            final com.pty4j.PtyProcess process = session.process();
+            if (process != null) {
+                assertTrue(process.waitFor(20, TimeUnit.SECONDS), "hole start ended");
+            }
+        }
     }
 
     @Test
