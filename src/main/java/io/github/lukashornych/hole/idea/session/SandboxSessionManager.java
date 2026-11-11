@@ -76,7 +76,7 @@ public final class SandboxSessionManager implements Disposable {
             projectRoot(project),
             () -> HoleExecutable.getInstance().probe(),
             () -> ShellEnvironment.getInstance().readShowingProgress(project),
-            SessionServices.platform(),
+            SessionServices.platform(project),
             // no expiry condition: the runnables check `disposing` themselves, so a session spawned while the
             // project closes still gets its SIGINT
             runnable -> ApplicationManager.getApplication().invokeLater(runnable, ModalityState.any()),

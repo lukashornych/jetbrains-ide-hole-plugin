@@ -1,5 +1,6 @@
 package io.github.lukashornych.hole.idea.session;
 
+import com.intellij.openapi.project.Project;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import io.github.lukashornych.hole.idea.hole.InstanceIdGenerator;
 import io.github.lukashornych.hole.idea.hole.MetadataPoller;
@@ -21,6 +22,7 @@ import java.util.function.Supplier;
  * @param clock        time source for the stopping timer
  * @param background   runs blocking work such as waiting for the end of the output
  * @param pastes       creates and deletes the paste directories of the image paste
+ * @param clipboard    receives the clipboard writes (OSC 52) of the sandboxes
  */
 public record SessionServices(
     @NotNull HoleTerminalRunner runner,
@@ -29,7 +31,8 @@ public record SessionServices(
     @NotNull Supplier<String> instanceIds,
     @NotNull Clock clock,
     @NotNull Executor background,
-    @NotNull PasteDirectory pastes
+    @NotNull PasteDirectory pastes,
+    @NotNull ClipboardSink clipboard
 ) {
 
     public SessionServices {
@@ -40,13 +43,14 @@ public record SessionServices(
         Objects.requireNonNull(clock, "clock");
         Objects.requireNonNull(background, "background");
         Objects.requireNonNull(pastes, "pastes");
+        Objects.requireNonNull(clipboard, "clipboard");
     }
 
     /**
-     * Returns the services used in the IDE.
+     * Returns the services used in the IDE for the sessions of {@code project}.
      */
     @NotNull
-    public static SessionServices platform() {
+    public static SessionServices platform(@NotNull Project project) {
         final InstanceIdGenerator generator = new InstanceIdGenerator();
         return new SessionServices(
             new HoleTerminalRunner(),
@@ -55,7 +59,8 @@ public record SessionServices(
             generator::generate,
             Clock.systemUTC(),
             AppExecutorUtil.getAppExecutorService(),
-            PasteDirectory.platform()
+            PasteDirectory.platform(),
+            ClipboardSink.platform(project)
         );
     }
 }

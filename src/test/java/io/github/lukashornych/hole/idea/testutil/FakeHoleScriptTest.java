@@ -20,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -86,6 +87,17 @@ class FakeHoleScriptTest {
         final Process process = start("abc123");
         assertTrue(process.waitFor(10, TimeUnit.SECONDS));
         assertTrue(output(process).contains("Instance ID: abc123\nPROJECT_PATH=/home/user/project\n"), output(process));
+    }
+
+    @Test
+    void startWritesTheClipboardThroughOsc52() throws Exception {
+        final String text = "žluťoučký kůň " + "x".repeat(100);
+        this.hole.environment().put("FAKE_HOLE_OSC52", text);
+        this.hole.environment().put("FAKE_HOLE_EXIT_AFTER", "0.3");
+        final Process process = start("abc123");
+        assertTrue(process.waitFor(10, TimeUnit.SECONDS));
+        final String base64 = Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8));
+        assertTrue(output(process).contains("Instance ID: abc123\n\033]52;c;" + base64 + "\007"), output(process));
     }
 
     @Test

@@ -286,8 +286,8 @@ An agent in the sandbox cannot read the host clipboard, and the terminal pastes 
 container path into the terminal as a bracketed paste (`ESC[200~/tmp/hole-idea-paste/20261027-101503-1.png ESC[201~`,
 no Enter); Claude Code turns it into `[Image #1]`. Without bracketed paste mode (e.g. a debug shell) the path is typed
 plain. With text on the clipboard both keys behave as before. When the clipboard holds both an image and text (e.g.
-cells copied from a spreadsheet on macOS), the image wins, so screenshot tools that also put a file name there work. Only a key press in the IDE reaches the clipboard;
-nothing inside the sandbox can trigger it.
+cells copied from a spreadsheet on macOS), the image wins, so screenshot tools that also put a file name there work. Only a key press in the IDE reads the clipboard;
+nothing inside the sandbox can read it (writing to it is described in [Copy to the clipboard](#copy-to-the-clipboard)).
 
 - **Paste folder**: `~/.hole/idea-paste/<instance ID>/` (the parent is private, `0700`), mounted read-only with
   `--library ~/.hole/idea-paste/<ID>:/tmp/hole-idea-paste` after the user's libraries; the command preview shows it.
@@ -300,6 +300,26 @@ nothing inside the sandbox can trigger it.
 - **Limits**: one clipboard image per paste, at most 10 MB as PNG; failures (too big, not readable, the sandbox
   ended) show a balloon and type nothing. Copied image files and drag and drop are not supported.
 - With a global `files.exclude`, Hole warns about entries that match nothing in the paste folder at every start.
+
+### Copy to the clipboard
+
+Programs in the sandbox copy text to the host clipboard through **OSC 52** (`ESC ] 52 ; c ; <base64> BEL`): Claude
+Code's `/copy` (in the container it has no native clipboard tool), Codex, neovim, tmux with `set-clipboard on`. The
+terminal of a sandbox tab drops the sequence, so the plugin reads it from the output itself, decodes the text and puts
+it into the host clipboard. The status bar of the project shows `Hole: copied N characters from <tab title>`; no
+balloon, the agent confirms the copy in the terminal itself.
+
+- **Never read**: a query (`ESC ] 52 ; c ; ?`) is ignored and gets no answer; the sandbox still cannot read the host
+  clipboard.
+- **Targets** (`c`, `p`, `s`, `0`–`7`, empty) are not distinguished: every write goes to the system clipboard.
+- **Invalid** payloads (not base64, not UTF-8, empty) are ignored. Unlike xterm, an empty payload does not clear the
+  clipboard: nothing in the sandbox can wipe it.
+- **Limit**: a payload over 1 MiB of base64 (about 768 KiB of text) is dropped whole and the status bar shows
+  `Hole: text from <tab title> too large to copy`. Claude Code itself writes no longer sequence.
+- **Always on**, no setting: in a regular terminal with OSC 52 support the same sandbox can already write the
+  clipboard, so a switch would protect against nothing; every write is visible in the status bar.
+- Not guaranteed: OSC 52 wrapped in a DCS passthrough (`ESC P tmux; …`) by a multiplexer the user runs inside the
+  sandbox; it is not recognised as such and may or may not be copied.
 
 ### New Sandbox dialog
 

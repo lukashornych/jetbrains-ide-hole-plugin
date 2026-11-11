@@ -737,7 +737,7 @@ public final class SandboxSession {
     /**
      * One `hole start` process and the output seen from it.
      */
-    private final class Attempt implements HoleTtyConnector.OutputTap {
+    private final class Attempt implements HoleTtyConnector.OutputTap, Osc52Parser.Listener {
 
         private final String instanceId;
         private final PtyProcess process;
@@ -745,6 +745,8 @@ public final class SandboxSession {
         private final Path pasteDirectory;
         private final StringBuilder earlyOutput = new StringBuilder();
         private final CompletableFuture<Void> outputClosed = new CompletableFuture<>();
+        /** Clipboard writes (OSC 52) of this process; a new process starts with a fresh one. */
+        private final Osc52Parser clipboard = new Osc52Parser(this);
         private volatile Disposable subscription;
         /** The process has exited (the exit wait returned). */
         private volatile boolean exited;
@@ -767,6 +769,31 @@ public final class SandboxSession {
                 if (room > 0) {
                     this.earlyOutput.append(buffer, offset, Math.min(room, length));
                 }
+            }
+            synchronized (this.clipboard) {
+                this.clipboard.feed(buffer, offset, length);
+            }
+        }
+
+        @Override
+        public void copied(@NotNull String text) {
+            LOG.debug("Sandbox " + this.instanceId + " copied " + text.codePointCount(0, text.length())
+                + " characters to the clipboard");
+            try {
+                SandboxSession.this.services.clipboard().copy(SandboxSession.this, text);
+            } catch (RuntimeException e) {
+                // called from the terminal's read: a failure must not end the output of the tab
+                LOG.warn("Could not copy the clipboard text of sandbox " + this.instanceId, e);
+            }
+        }
+
+        @Override
+        public void tooLarge() {
+            LOG.debug("Sandbox " + this.instanceId + " wrote a clipboard text over the limit; dropped");
+            try {
+                SandboxSession.this.services.clipboard().tooLarge(SandboxSession.this);
+            } catch (RuntimeException e) {
+                LOG.warn("Could not report the dropped clipboard text of sandbox " + this.instanceId, e);
             }
         }
 

@@ -31,6 +31,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -53,11 +54,13 @@ class SandboxSessionTest {
     private FakeHole hole;
     private Path project;
     private MetadataPoller poller;
+    private ScheduledExecutorService pollerExecutor;
     private ExecutorService background;
     private MutableClock clock;
     private final Deque<String> nextIds = new ArrayDeque<>();
     /** Disabled unless a test needs the image paste, so the other tests see the command lines without the mount. */
     private PasteDirectory pastes = PasteDirectory.disabled();
+    private final CapturingClipboard clipboard = new CapturingClipboard();
     private final List<SandboxSession> started = new CopyOnWriteArrayList<>();
     /** When set, a new instance ID (asked for right before a spawn) waits for it; holds a relaunch in its spawn window. */
     private volatile CountDownLatch idGate;
@@ -69,7 +72,8 @@ class SandboxSessionTest {
         this.hole = FakeHole.install(this.temp.resolve("fake"));
         this.project = Files.createDirectories(this.temp.resolve("demo"));
         final HoleListClient client = new HoleListClient(this.hole.executable().toString(), new CliRunner(this.hole::environment));
-        this.poller = new MetadataPoller(client::listAll, Executors.newSingleThreadScheduledExecutor(), true,
+        this.pollerExecutor = Executors.newSingleThreadScheduledExecutor();
+        this.poller = new MetadataPoller(client::listAll, this.pollerExecutor, true,
             Duration.ofMillis(100), Duration.ofMillis(300));
         this.background = Executors.newCachedThreadPool();
         this.clock = new MutableClock(Instant.parse("2026-10-21T10:00:00Z"));
@@ -77,12 +81,22 @@ class SandboxSessionTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws InterruptedException {
         for (SandboxSession session : this.started) {
             session.forceStop();
         }
         this.poller.dispose();
         this.background.shutdownNow();
+        // nothing may write into the temporary directory while JUnit deletes it: a `hole list` of the poller, a
+        // `hole start` still tearing down
+        assertTrue(this.pollerExecutor.awaitTermination(20, TimeUnit.SECONDS), "poller stopped");
+        assertTrue(this.background.awaitTermination(20, TimeUnit.SECONDS), "background stopped");
+        for (SandboxSession session : this.started) {
+            final com.pty4j.PtyProcess process = session.process();
+            if (process != null) {
+                assertTrue(process.waitFor(20, TimeUnit.SECONDS), "hole start ended");
+            }
+        }
     }
 
     @Test
@@ -103,6 +117,15 @@ class SandboxSessionTest {
         assertEquals(130, session.snapshot().exitCode());
         waitUntil(() -> recorder.drain.output().contains("Destroying sandbox aaaaaa"), () -> "teardown output: " + recorder.drain.output());
         assertTrue(this.hole.calls().stream().anyMatch(call -> call.startsWith("start claude . --instance-id aaaaaa")), this.hole.calls().toString());
+    }
+
+    @Test
+    void osc52WriteReachesTheClipboardOfTheSession() {
+        this.hole.environment().put("FAKE_HOLE_OSC52", "žluťoučký kůň 🐎");
+        final SandboxSession session = start(SandboxConfig.defaults(), false, "aaaaaa", new Recorder());
+        waitUntil(() -> !this.clipboard.copies.isEmpty(), "clipboard written");
+        assertEquals(List.of("žluťoučký kůň 🐎"), this.clipboard.copies);
+        assertEquals(List.of(session), this.clipboard.sessions);
     }
 
     @Test
@@ -219,7 +242,7 @@ class SandboxSessionTest {
         );
         final SandboxSession session = new SandboxSession(launch, "aaaaaa", new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled()
+            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled(), ClipboardSink.NONE
         ), recorder);
         session.start();
         this.started.add(session);
@@ -238,7 +261,7 @@ class SandboxSessionTest {
         );
         final SandboxSession session = new SandboxSession(launch, "aaaaaa", new SessionServices(
             new HoleTerminalRunner(), (pid, signal) -> signals.incrementAndGet() > 0, MetadataSource.of(this.poller),
-            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled()
+            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled(), ClipboardSink.NONE
         ), recorder);
         try {
             session.start();
@@ -315,7 +338,7 @@ class SandboxSessionTest {
             SandboxConfig.defaults(), false, this.hole.executable(), this.project, this.project, this.hole.environment()
         ), "aaaaaa", new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled()
+            this.nextIds::poll, this.clock, this.background, PasteDirectory.disabled(), ClipboardSink.NONE
         ), recorder);
         session.setAgentTitle("✳ Fix EntityIndexTest");
         session.setAgentTitle("✳ Fix EntityIndexTest");
@@ -847,7 +870,7 @@ class SandboxSessionTest {
     ) {
         final SessionServices services = new SessionServices(
             new HoleTerminalRunner(), ProcessSignaller.PROCESS_GROUP, MetadataSource.of(this.poller),
-            this::nextId, this.clock, background, this.pastes
+            this::nextId, this.clock, background, this.pastes, this.clipboard
         );
         final SandboxSession.Launch launch = new SandboxSession.Launch(
             config, debug, this.hole.executable(), this.project, this.project, this.hole.environment()
@@ -890,6 +913,22 @@ class SandboxSessionTest {
             }
         }
         return waiting;
+    }
+
+    private static final class CapturingClipboard implements ClipboardSink {
+        final List<String> copies = new CopyOnWriteArrayList<>();
+        final List<SandboxSession> sessions = new CopyOnWriteArrayList<>();
+
+        @Override
+        public void copy(@NotNull SandboxSession session, @NotNull String text) {
+            this.sessions.add(session);
+            this.copies.add(text);
+        }
+
+        @Override
+        public void tooLarge(@NotNull SandboxSession session) {
+            throw new AssertionError("no write over the limit expected");
+        }
     }
 
     private static final class Recorder implements SandboxSession.Listener {

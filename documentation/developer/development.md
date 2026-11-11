@@ -104,4 +104,5 @@ expected strings. Use generic values such as `/home/user/project`, `my-project` 
 (*Settings › Tools › Hole*, then the `PATH` of the user's shell, then `~/.local/bin/hole`), so a locally built Hole
 can be tested by pointing the setting at its binary. Things worth checking by hand after UI changes: light and dark
 theme, a sandbox start and stop, restart from the header, the Network window, image paste with a screenshot on the
-clipboard.
+clipboard, copy to the clipboard (`/copy` in Claude Code, including an answer longer than the screen; in a debug shell
+`printf '\e]52;c;%s\a' "$(printf 'žluťoučký' | base64)"` copies, `printf '\e]52;c;?\a'` types nothing back).
