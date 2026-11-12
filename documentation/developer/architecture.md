@@ -140,7 +140,13 @@ group; Hole's watchdog survives it and finishes the teardown in the background.
   against one does not run on the other.
 
 The agent's OSC 0/2 title is read through jediterm's title listener. File paths in the output are linked by
-`SandboxPathFilter`, because the Terminal plugin hands its own path filter only to its reworked terminal.
+`SandboxPathFilter`, because the Terminal plugin hands its own path filter only to its reworked terminal. jediterm
+joins only soft-wrapped lines before filtering, so paths that the agent wraps itself (lines and table cells, see the
+[specification](specification.md#file-path-links)) are joined by state kept in the filter: a fragment that ends a
+line or cell at its edge, consumed by the first token of a following line or cell. The platform's
+`JediTermHyperlinkFilterAdapter` runs the filters of one widget sequentially, in output order (one coroutine,
+parallelism 1); the filter relies on that undocumented order, and a reordering only loses a link, because a join is
+linked only when the joined file exists. The terminal width comes from the widget's text buffer.
 `ImagePasteHandler` is installed as a pre-key handler of the terminal panel and turns a paste key with an image on
 the clipboard into a PNG in the sandbox's paste folder plus a bracketed paste of its container path (details in the
 [specification](specification.md#image-paste)). `EscapeKeyHandler`, another pre-key handler, writes a plain `Escape`

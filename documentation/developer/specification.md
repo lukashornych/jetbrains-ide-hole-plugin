@@ -321,6 +321,32 @@ balloon, the agent confirms the copy in the terminal itself.
 - Not guaranteed: OSC 52 wrapped in a DCS passthrough (`ESC P tmux; …`) by a multiplexer the user runs inside the
   sandbox; it is not recognised as such and may or may not be copied.
 
+### File path links
+
+A file path in the sandbox output is a link that opens the file in an IDE editor, at the line and column of a
+`path:line` or `path:line:column` suffix. An absolute path is taken as it is (Hole mounts the project, libraries and
+worktrees at their host paths), a relative one against the sandbox's project directory. Only existing files and
+directories are linked; files the agent has just created are linked too.
+
+Claude Code wraps its output itself, so a long path breaks mid-word into two lines (`…/service/PublishedCampaignSer`,
+then `    vice.java`). The terminal sees two separate lines, and neither part is a path on its own. The plugin links
+the **continuation** to the joined file when:
+
+- the first part is a path token with a `/` that ends the line at most 8 columns before the right edge of the
+  terminal (a full stop or `/` may follow it),
+- the continuation is the first token of a following line, with at most 2 other lines in between, and
+- the joined path is an existing file.
+
+The first part stays plain text. A path wrapped over more than two lines is joined part by part, and only its last
+part is linked.
+
+**Tables** drawn with box characters (`│`, as Claude Code renders Markdown tables) wrap inside their cells. Each cell
+is handled like a line of its own: the first part ends at the cell's right border (one character of slack before the
+padding), and the continuation is the first token of the cell at the same position (first, second, …) on a following
+table line. A horizontal rule (`├───┼───┤`) starts a new table row, so no cell continues across it.
+
+Other layouts (a path split across columns, other programs' own wrapping) are not joined.
+
 ### New Sandbox dialog
 
 The dialog always opens with **default values** (no memory of previous ad-hoc values), so an ad-hoc start is a single
