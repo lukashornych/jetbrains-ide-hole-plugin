@@ -386,7 +386,10 @@ final class SandboxTabPanel extends HoleToolWindowView.Tab {
         final JBTerminalSystemSettingsProvider settings = new JBTerminalSystemSettingsProvider();
         this.widget = new JBTerminalWidget(this.project, settings, this.parent);
         this.widget.getTerminal().addApplicationTitleListener(this.session::setAgentTitle);
-        this.widget.addMessageFilter(new SandboxPathFilter(this.project, this.session.launch().projectDirectory()));
+        final JBTerminalWidget terminal = this.widget;
+        this.widget.addMessageFilter(new SandboxPathFilter(
+            this.project, this.session.launch().projectDirectory(), () -> terminal.getTerminalTextBuffer().getWidth()
+        ));
         new ImagePasteHandler(this.widget, settings, ImagePasteHandler.Target.of(this.session),
             new HoleNotifications(this.project)::imagePasteFailed).install();
         new EscapeKeyHandler(this.widget).install();
