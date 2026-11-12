@@ -33,6 +33,8 @@ filename date that disagrees with `date:`.
 
 | Date | Record | Kind | Status | Refs |
 |------|--------|------|--------|------|
+| 2026-11-12 | [Paths the agent wraps itself are joined by state kept in the path filter, linking only the continuation](2026-11-12-wrapped-paths-joined-by-filter-state.md) | fix | accepted | — |
+| 2026-11-11 | [The plugin interprets OSC 52 clipboard writes from the sandbox output itself, always on, never answering reads](2026-11-11-plugin-interprets-osc52-clipboard-writes.md) | feature | accepted | — |
 | 2026-11-05 | [The Network window reads, saves and removes its entries in the global and project settings files by editing the JSON itself](2026-11-05-network-entries-saved-to-settings-by-the-plugin.md) | feature | proposed | — |
 | 2026-11-05 | [Sandbox tabs are shown side by side through the platform's tool window split, with one listener per tab](2026-11-05-tool-window-panes-use-the-platform-split.md) | feature | proposed | — |
 | 2026-11-05 | [Common day-to-day settings may be edited in the GUI, each through a narrow editor of one top-level key; libraries are the second](2026-11-05-day-to-day-settings-editable-in-the-gui.md) | feature | proposed | — |

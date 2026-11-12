@@ -52,7 +52,7 @@ All packages below are under `io.github.lukashornych.hole.idea`.
 |---------|----------------|
 | `process` | `CliRunner` runs short-lived, non-interactive commands with captured output and a timeout; `ExecutableLocator` resolves executables on the user's `PATH`; `ShellEnvironment` reads the user's shell environment. `CliRunner` is not used for `hole start`. |
 | `hole` | One client per Hole command (`HoleListClient`, `HoleSettingsClient`, `HoleModifyClient`) with its parser; `HoleExecutable` locates and probes `hole`; `HoleCommandBuilder` builds every argument list; `InstanceIdGenerator`; `MetadataPoller`. |
-| `session` | The lifecycle of one sandbox (`SandboxSession`) and of all sandboxes of a project (`SandboxSessionManager`); the pty (`HoleTerminalRunner`, `HoleTtyConnector`); process-group signals (`ProcessSignaller`); image paste folders (`PasteDirectory`, `PasteStore`). |
+| `session` | The lifecycle of one sandbox (`SandboxSession`) and of all sandboxes of a project (`SandboxSessionManager`); the pty (`HoleTerminalRunner`, `HoleTtyConnector`); process-group signals (`ProcessSignaller`); image paste folders (`PasteDirectory`, `PasteStore`); clipboard writes (`Osc52Parser`, `ClipboardSink`). |
 | `storage` | `PersistentStateComponent` services: plugin settings and favourites of both scopes. Null handling of persisted state lives here. |
 | `ui` | Tool window, sandbox tabs and their header, New Sandbox / Edit Favourites dialogs with the shared `SandboxForm`, favourite starts (`FavouriteStarter`: project root or a git worktree from `StartLocations`), settings page, notifications, terminal path links and image paste key handling. |
 | `ui/settings` | `SettingsDocuments` reads and changes a sandbox's settings files through their IDE documents (`hole settings get\|create` names them) for the Network and Libraries windows; a leaf package, so `ui`, `ui/network` and `ui/library` depend on it without a cycle. |
@@ -102,7 +102,7 @@ status, which can be missed between two polls.
 - **Instance ID.** The plugin generates the 6-character ID itself and passes it with `--instance-id`, so the tab
   knows it before Hole reports anything. When Hole rejects the ID (in use, or leftovers of an abandoned sandbox), the
   session starts once more with a new ID in the same tab. `HoleTtyConnector` sees what the terminal reads only to
-  recognise that one error.
+  recognise that one error and to find clipboard writes (below).
 - **Restart** replaces a running sandbox in the same tab: SIGINT like a close, and when the process has exited a new
   `hole start` with a new instance ID and a fresh probe. The terminal widget is replaced. An EXITED sandbox is
   restarted by `SandboxSession.relaunch`: it switches to STOPPING with a pending restart **under the same lock that
@@ -140,13 +140,28 @@ group; Hole's watchdog survives it and finishes the teardown in the background.
   against one does not run on the other.
 
 The agent's OSC 0/2 title is read through jediterm's title listener. File paths in the output are linked by
-`SandboxPathFilter`, because the Terminal plugin hands its own path filter only to its reworked terminal.
+`SandboxPathFilter`, because the Terminal plugin hands its own path filter only to its reworked terminal. jediterm
+joins only soft-wrapped lines before filtering, so paths that the agent wraps itself (lines and table cells, see the
+[specification](specification.md#file-path-links)) are joined by state kept in the filter: a fragment that ends a
+line or cell at its edge, consumed by the first token of a following line or cell. The platform's
+`JediTermHyperlinkFilterAdapter` runs the filters of one widget sequentially, in output order (one coroutine,
+parallelism 1); the filter relies on that undocumented order, and a reordering only loses a link, because a join is
+linked only when the joined file exists. The terminal width comes from the widget's text buffer.
 `ImagePasteHandler` is installed as a pre-key handler of the terminal panel and turns a paste key with an image on
 the clipboard into a PNG in the sandbox's paste folder plus a bracketed paste of its container path (details in the
 [specification](specification.md#image-paste)). `EscapeKeyHandler`, another pre-key handler, writes a plain `Escape`
 to the pty and consumes it: otherwise the platform's internal `TerminalEscapeKeyListener`, which runs after the
 pre-key handlers, moves the focus to the editor in every tool window but Terminal while the program draws in the main
 screen buffer (as Claude Code does).
+
+jediterm has no OSC 52, so clipboard writes are found in the output tap: every `SandboxSession` attempt (one `hole
+start` process) owns an `Osc52Parser`, a streaming state machine that survives a sequence split across reads, skips
+other OSCs without buffering them and stops buffering at the limit. A new process (retry, restart) gets a fresh
+parser, so a half-read sequence of the old one cannot leak into it; a pane move keeps the widget and its connector,
+so the stream into the parser stays continuous. Found writes go to the `ClipboardSink` of `SessionServices` (in the IDE: `CopyPasteManager` and the status bar on
+the EDT in any modality; tests capture them). The sequence still reaches jediterm, which drops it. The copied text
+is never logged; debug logs carry the instance ID and the length only. Behaviour:
+[specification](specification.md#copy-to-the-clipboard).
 
 ### Tool window and panes
 
@@ -244,5 +259,5 @@ The UI is split into a Swing-free model and a thin Swing part, so the logic is t
 | `LibraryTableModel` rows, `LibrariesDialog.removeQuestion` / `hint` | `LibrariesDialog`, `LibraryInputDialog` |
 
 `SessionServices` bundles what a session needs from outside (pty runner, signaller, metadata source, ID generator,
-clock), so tests pass the real implementations running against the fake `hole` script. See
+clock, paste folders, clipboard sink), so tests pass the real implementations running against the fake `hole` script. See
 [development](development.md#tests).

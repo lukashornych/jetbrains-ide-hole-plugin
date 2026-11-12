@@ -21,6 +21,8 @@ import java.util.List;
  */
 public class SandboxPathFilterTest extends BasePlatformTestCase {
 
+    private static final int COLUMNS = 60;
+
     private Path projectDir;
     private Path otherDir;
     private SandboxPathFilter filter;
@@ -34,7 +36,7 @@ public class SandboxPathFilterTest extends BasePlatformTestCase {
         createFile(this.projectDir.resolve("README.md"));
         createFile(this.otherDir.resolve("lib/Cart.java"));
         VfsUtil.markDirtyAndRefresh(false, true, true, this.projectDir.toFile(), this.otherDir.toFile());
-        this.filter = new SandboxPathFilter(getProject(), this.projectDir);
+        this.filter = new SandboxPathFilter(getProject(), this.projectDir, () -> COLUMNS);
     }
 
     @Override
@@ -80,7 +82,7 @@ public class SandboxPathFilterTest extends BasePlatformTestCase {
         final Path unseen = this.otherDir.resolve("unseen");
         createFile(unseen.resolve("src/Invoice.java"));
         assertNull(LocalFileSystem.getInstance().findFileByNioFile(unseen));
-        final SandboxPathFilter unseenFilter = new SandboxPathFilter(getProject(), unseen);
+        final SandboxPathFilter unseenFilter = new SandboxPathFilter(getProject(), unseen, () -> COLUMNS);
         final String line = "Edited src/Invoice.java:2";
 
         final Filter.Result result = unseenFilter.applyFilter(line, line.length());
@@ -121,6 +123,110 @@ public class SandboxPathFilterTest extends BasePlatformTestCase {
         assertNull(this.filter.applyFilter("Hole 2.6.0 started at 12:30, e.g. src/main/Missing.java\n", 57));
         assertNull(this.filter.applyFilter("Open https://example.com/src/main/Shop.java\n", 45));
         assertNull(this.filter.applyFilter("Done. All src tests passed\n", 27));
+    }
+
+    public void testPathHardWrappedByTheAgentLinksItsContinuation() throws IOException {
+        createFile(this.projectDir.resolve("src/main/PublishedCampaignService.java"));
+        final String first = edgeLine("  - src/main/PublishedCampaignSer");
+        final String second = "    vice.java:3 (published)";
+
+        assertNull(this.filter.applyFilter(first, first.length()));
+        final Filter.ResultItem item = single(second);
+        assertEquals("vice.java:3", text(second, item));
+        assertEquals(
+            this.projectDir.resolve("src/main/PublishedCampaignService.java").toString(),
+            descriptor(item).getFile().getPath()
+        );
+        assertEquals("2:0", position(descriptor(item)));
+    }
+
+    public void testPathHardWrappedOverThreeLinesLinksTheLastPart() throws IOException {
+        createFile(this.projectDir.resolve("src/main/campaign/service/PublishedCampaignService.java"));
+        final String first = edgeLine("  - src/main/camp");
+        final String middle = edgeLine("    aign/service/Publish");
+        final String last = "    edCampaignService.java";
+
+        assertNull(this.filter.applyFilter(first, first.length()));
+        assertNull(this.filter.applyFilter(middle, middle.length()));
+        assertEquals("edCampaignService.java", text(last, single(last)));
+    }
+
+    public void testPathHardWrappedAfterASlashLinksItsContinuation() throws IOException {
+        createFile(this.projectDir.resolve("src/main/campaign/PublishedCampaignService.java"));
+        final String first = edgeLine("  - src/main/campaign/");
+        final String second = "    PublishedCampaignService.java";
+
+        // the directory itself is linked as any other existing path
+        this.filter.applyFilter(first, first.length());
+        assertEquals("PublishedCampaignService.java", text(second, single(second)));
+    }
+
+    public void testTreeLineIsNoTableRule() throws IOException {
+        createFile(this.projectDir.resolve("src/main/PublishedCampaignService.java"));
+        final String first = edgeLine("├── src/main/PublishedCampaignSer");
+        final String second = "    vice.java";
+
+        assertNull(this.filter.applyFilter(first, first.length()));
+        assertEquals("vice.java", text(second, single(second)));
+    }
+
+    public void testLineEndingBeforeTheRightEdgeIsNotContinued() throws IOException {
+        createFile(this.projectDir.resolve("src/main/PublishedCampaignService.java"));
+        final String first = "  - src/main/PublishedCampaignSer";
+
+        assertNull(this.filter.applyFilter(first, first.length()));
+        assertNull(this.filter.applyFilter("    vice.java", 13));
+    }
+
+    public void testFragmentExpiresAfterUnrelatedLines() throws IOException {
+        createFile(this.projectDir.resolve("src/main/PublishedCampaignService.java"));
+        final String first = edgeLine("  - src/main/PublishedCampaignSer");
+
+        assertNull(this.filter.applyFilter(first, first.length()));
+        assertNull(this.filter.applyFilter("unrelated", 9));
+        assertNull(this.filter.applyFilter("unrelated", 9));
+        assertNull(this.filter.applyFilter("unrelated", 9));
+        assertNull(this.filter.applyFilter("    vice.java", 13));
+    }
+
+    public void testPathWrappedInTableCellLinksItsContinuation() throws IOException {
+        createFile(this.projectDir.resolve("src/main/acme/FunctionScoreBenchmark.java"));
+        final String first = tableRow("1", "2025-01", "a1b2c3d4", "src/main/acme/FunctionSco");
+        final String second = tableRow("", "-15", "e5f", "reBenchmark.java:7");
+
+        assertNull(this.filter.applyFilter(first, first.length()));
+        final Filter.ResultItem item = single(second);
+        assertEquals("reBenchmark.java:7", text(second, item));
+        assertEquals(
+            this.projectDir.resolve("src/main/acme/FunctionScoreBenchmark.java").toString(),
+            descriptor(item).getFile().getPath()
+        );
+        assertEquals("6:0", position(descriptor(item)));
+    }
+
+    public void testTableRuleEndsTheWrappedCells() throws IOException {
+        createFile(this.projectDir.resolve("src/main/acme/FunctionScoreBenchmark.java"));
+        final String first = tableRow("1", "2025-01", "a1b2c3d4", "src/main/acme/FunctionSco");
+        final String rule = "  ├─────┼─────────┼──────────┼───────────────────────────┤";
+        final String second = tableRow("", "-15", "e5f", "reBenchmark.java");
+
+        assertNull(this.filter.applyFilter(first, first.length()));
+        assertNull(this.filter.applyFilter(rule, rule.length()));
+        assertNull(this.filter.applyFilter(second, second.length()));
+    }
+
+    /**
+     * Draws a table line the way the agent does, the last cell 25 characters wide.
+     */
+    private static String tableRow(String number, String date, String commit, String path) {
+        return "  │ %-3s │ %-7s │ %-8s │ %-25s │".formatted(number, date, commit, path);
+    }
+
+    /**
+     * Pads the text on the left so that it ends in the last column, the way the agent breaks a long path.
+     */
+    private static String edgeLine(String text) {
+        return " ".repeat(COLUMNS - text.length()) + text;
     }
 
     private Filter.ResultItem single(String line) {

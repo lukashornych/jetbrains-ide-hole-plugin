@@ -39,7 +39,10 @@ network policy. This plugin gives Hole a home in the IDE:
   settings file, with a restart offer to apply them,
 - **image paste** — paste a screenshot into the agent with `Cmd+V` / `Ctrl+V`, although the sandbox cannot read
   your clipboard,
-- clickable file paths in the agent's output, and clean stopping of sandboxes when a tab or the IDE closes.
+- **copy to the clipboard** — `/copy` in Claude Code (and other programs that copy through OSC 52) puts the text into
+  your clipboard,
+- clickable file paths in the agent's output, also when the agent wraps a long path over two lines or in a table,
+  and clean stopping of sandboxes when a tab or the IDE closes.
 
 The plugin does not replace Hole or change how it isolates the agent: it runs `hole` exactly as you would, and
 Hole's settings files remain the place to configure sandboxes — only a few day-to-day settings (allowed domains,
